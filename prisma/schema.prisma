@@ -1,0 +1,898 @@
+// Multi-tenant payroll platform. See docs/architecture.md.
+//
+// Conventions
+//  - Platform tables (Plan, Permission, StatutoryConfig, ...) have NO companyId.
+//  - Every tenant table has `companyId NOT NULL`, and child rows reference their parents through
+//    COMPOSITE foreign keys (companyId, parentId) -> (companyId, id). The database itself therefore
+//    refuses a row in company A that points at a record in company B.
+//  - Row-Level Security policies (see the rls migration) are the backstop behind the application's
+//    tenant-scoped client (src/server/tenancy).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Application connection: a NON-owner role so Row-Level Security applies.
+  url       = env("DATABASE_URL")
+  // Owner connection used by `prisma migrate`.
+  directUrl = env("DIRECT_URL")
+}
+
+/* --------------------------------- Enums ---------------------------------- */
+
+enum PlatformRole {
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+enum CompanyStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+}
+
+enum PermissionScope {
+  OWN
+  TEAM
+  COMPANY
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  /// Unpaid, temporary. See EmployeeSuspension for the date range(s); this is a cached "is it true today" label.
+  SUSPENDED
+  /// Resignation approved and the notice period has ended. See EmployeeSeparation for the record.
+  RESIGNED
+  /// Employer-ended and the effective date has passed. See EmployeeSeparation for the record.
+  TERMINATED
+}
+
+enum SeparationType {
+  RESIGNATION
+  TERMINATION
+}
+
+enum SeparationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  HOLIDAY
+  WEEK_OFF
+  ON_LEAVE
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PROCESSED
+  FINALIZED
+}
+
+enum TaxRegime {
+  OLD
+  NEW
+}
+
+enum SalaryCalcType {
+  /// A fixed rupee amount per month.
+  FIXED
+  /// A percentage of the Basic component.
+  PERCENT_OF_BASIC
+  /// A percentage of monthly CTC (annual CTC / 12).
+  PERCENT_OF_CTC
+  /// Whatever is left of monthly CTC after every other component (e.g. Special Allowance).
+  BALANCE
+}
+
+enum LateAction {
+  MARK_LATE
+  HALF_DAY
+}
+
+enum EarlyLeaveAction {
+  MARK_EARLY
+  HALF_DAY
+}
+
+enum MissingPunchAction {
+  PRESENT
+  HALF_DAY
+  ABSENT
+}
+
+enum LopBasis {
+  CALENDAR_DAYS
+  WORKING_DAYS
+}
+
+enum AccrualMode {
+  UPFRONT
+  MONTHLY
+}
+
+enum LedgerKind {
+  OPENING
+  ACCRUAL
+  LEAVE_TAKEN
+  ADJUSTMENT
+  LAPSE
+  REVERSAL
+}
+
+enum ApproverType {
+  REPORTING_MANAGER
+  ROLE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  RETURNED
+  CANCELLED
+}
+
+enum ApprovalActionType {
+  APPROVE
+  REJECT
+  RETURN
+  COMMENT
+}
+
+/* ------------------------- Platform (no companyId) ------------------------- */
+
+model Plan {
+  id            String  @id @default(cuid())
+  code          String  @unique
+  name          String
+  /// null = unlimited
+  maxEmployees  Int?
+  priceMonthly  Decimal @default(0) @db.Decimal(12, 2)
+  features      Json    @default("{}")
+  active        Boolean @default(true)
+
+  subscriptions Subscription[]
+  createdAt     DateTime       @default(now())
+}
+
+/// Catalogue of every permission the code knows about. Synced from src/server/rbac/permissions.ts.
+model Permission {
+  key         String @id
+  module      String
+  description String
+
+  rolePermissions RolePermission[]
+}
+
+/* ------------------------------ Tenancy & identity ------------------------- */
+
+/// A client company = a tenant.
+model Company {
+  id                 String        @id @default(cuid())
+  name               String
+  legalName          String?
+  pan                String?
+  tan                String?
+  gstin              String?
+  cin                String?
+  companyType        String?
+  industry           String?
+  address            String
+  state              String
+  /// Month the financial year starts (4 = April).
+  financialYearStart Int           @default(4)
+  payrollFrequency   String        @default("MONTHLY")
+  pfEstablishmentId  String?
+  esiEstablishmentId String?
+  logoUrl            String?
+  payCycleStartDay   Int           @default(1)
+  status             CompanyStatus @default(TRIAL)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  users          User[]
+  roles          Role[]
+  invitations    Invitation[]
+  subscriptions  Subscription[]
+  supportSessions SupportSession[]
+  auditLogs      AuditLog[]
+  employees      Employee[]
+  statutoryConfigs StatutoryConfig[]
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  companyId          String
+  company            Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  planId             String
+  plan               Plan               @relation(fields: [planId], references: [id])
+  status             SubscriptionStatus @default(TRIAL)
+  trialEndsAt        DateTime?
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@index([companyId])
+}
+
+model User {
+  id           String        @id @default(cuid())
+  /// null only for platform users (SUPER_ADMIN).
+  companyId    String?
+  company      Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  email        String        @unique
+  passwordHash String
+  name         String?
+  mobile       String?
+  platformRole PlatformRole?
+  status       UserStatus    @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  employee    Employee?
+  userRoles   UserRole[]
+  invitations Invitation[]
+
+  @@index([companyId])
+}
+
+model Role {
+  id          String  @id @default(cuid())
+  companyId   String
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// COMPANY_ADMIN, HR_MANAGER, ... or a custom key.
+  key         String
+  name        String
+  description String?
+  /// System roles are seeded per company; custom roles have isSystem = false.
+  isSystem    Boolean @default(false)
+  createdAt   DateTime @default(now())
+
+  permissions RolePermission[]
+  userRoles   UserRole[]
+
+  @@unique([companyId, key])
+  @@unique([companyId, id])
+}
+
+model RolePermission {
+  roleId        String
+  permissionKey String
+  companyId     String
+  scope         PermissionScope @default(COMPANY)
+  role          Role            @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Cascade)
+  permission    Permission      @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@id([roleId, permissionKey])
+  @@index([companyId])
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  companyId String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role   @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([companyId])
+}
+
+/// One-time invite links. Only a SHA-256 hash of the token is stored.
+model Invitation {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId])
+}
+
+/// Auditable Super Admin access into a company. Read-only unless explicitly widened.
+model SupportSession {
+  id           String    @id @default(cuid())
+  superAdminId String
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  reason       String
+  ticketRef    String?
+  readOnly     Boolean   @default(true)
+  startedAt    DateTime  @default(now())
+  expiresAt    DateTime
+  endedAt      DateTime?
+
+  @@index([companyId])
+}
+
+/// Append-only. The application role has no UPDATE/DELETE on this table (see rls migration).
+model AuditLog {
+  id               String   @id @default(cuid())
+  /// null for platform-level events.
+  companyId        String?
+  company          Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorUserId      String?
+  actorEmail       String?
+  supportSessionId String?
+  module           String
+  action           String
+  entityType       String?
+  entityId         String?
+  oldValue         Json?
+  newValue         Json?
+  ip               String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([entityType, entityId])
+}
+
+/* ------------------------------- Tenant data ------------------------------- */
+
+/// Versioned statutory rates/slabs for ONE company (effective-dated, so past payroll runs stay
+/// accurate). New companies are created with the current India defaults, which their admin can edit.
+model StatutoryConfig {
+  id                   String   @id @default(cuid())
+  companyId            String
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  effectiveFrom        DateTime @db.Date
+  pfEmployeeRate       Decimal  @db.Decimal(9, 6)
+  pfEmployerRate       Decimal  @db.Decimal(9, 6)
+  pfWageCeiling        Decimal  @db.Decimal(12, 2)
+  esiEmployeeRate      Decimal  @db.Decimal(9, 6)
+  esiEmployerRate      Decimal  @db.Decimal(9, 6)
+  esiWageThreshold     Decimal  @db.Decimal(12, 2)
+  /// e.g. [{"upTo":15000,"amount":0},{"upTo":25000,"amount":150},{"upTo":null,"amount":200}]
+  professionalTaxSlabs Json
+  /// e.g. {"OLD":[...],"NEW":[...]}
+  incomeTaxSlabs       Json
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, effectiveFrom])
+}
+
+model Employee {
+  id                String           @id @default(cuid())
+  companyId         String
+  company           Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  /// null = employee has no portal login.
+  userId            String?          @unique
+  user              User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  employeeCode      String
+  firstName         String
+  lastName          String
+  personalEmail     String?
+  phone             String?
+  panNumber         String?
+  aadhaarLast4      String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  department        String?
+  designation       String?
+  /// Reporting manager (another employee in the same company). Enables TEAM-scoped permissions.
+  managerId         String?
+  dateOfJoining     DateTime         @db.Date
+  dateOfExit        DateTime?        @db.Date
+  status            EmploymentStatus @default(ACTIVE)
+  state             String
+  /// Income-tax regime this employee has opted for. Drives TDS in payroll.
+  taxRegime         TaxRegime        @default(NEW)
+  /// Falls back to the company default shift / leave policy when null.
+  shiftId           String?
+  shift             Shift?           @relation(fields: [companyId, shiftId], references: [companyId, id], onDelete: Restrict)
+  leavePolicyId     String?
+  leavePolicy       LeavePolicy?     @relation(fields: [companyId, leavePolicyId], references: [companyId, id], onDelete: Restrict)
+
+  salaries          EmployeeSalary[]
+  attendanceRecords AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
+  leaveLedger       LeaveLedger[]
+  payslips          Payslip[]
+  suspensions       EmployeeSuspension[]
+  separations       EmployeeSeparation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, employeeCode])
+  @@unique([companyId, id])
+  @@index([companyId, managerId])
+}
+
+/// One unpaid period, e.g. under a disciplinary process. Days inside [fromDate, toDate] are excluded
+/// from pay regardless of attendance. `toDate` null = open-ended, ends when someone reinstates the
+/// employee. Several rows can exist over an employee's tenure (never edited after the fact; a correction
+/// makes a new row or shortens `toDate`).
+model EmployeeSuspension {
+  id               String    @id @default(cuid())
+  companyId        String
+  employeeId       String
+  employee         Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  fromDate         DateTime  @db.Date
+  toDate           DateTime? @db.Date
+  reason           String?
+  createdByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+}
+
+/// A resignation or a termination. Resignations go through the generic approval engine
+/// (entityType "RESIGNATION"); terminations are an employer decision and are created already APPROVED.
+/// `lastWorkingDay` is the last day that is paid — `Employee.dateOfExit` is kept equal to it once
+/// APPROVED, which is what payroll actually reads.
+model EmployeeSeparation {
+  id                String            @id @default(cuid())
+  companyId         String
+  employeeId        String
+  employee          Employee          @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  type              SeparationType
+  status            SeparationStatus  @default(PENDING)
+  /// Date the resignation was submitted, or the date the termination was recorded.
+  submittedDate     DateTime          @db.Date
+  /// Resignation only; editable up to and including after approval, as long as the last working day hasn't passed.
+  noticePeriodDays  Int?
+  lastWorkingDay    DateTime          @db.Date
+  reason            String?
+  requestedByUserId String?
+  decidedByUserId   String?
+  decidedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+  @@index([companyId, status])
+}
+
+/* ------------------------------ Salary set-up ------------------------------- */
+
+/// A pay component this company uses (Basic, HRA, Conveyance, Bonus, ...). Each company defines its own.
+model SalaryComponent {
+  id           String         @id @default(cuid())
+  companyId    String
+  code         String
+  name         String
+  /// How the amount is worked out by default when a template uses this component.
+  calcType     SalaryCalcType @default(FIXED)
+  defaultValue Decimal        @default(0) @db.Decimal(14, 4)
+  /// Exactly one active component should be the Basic: percentages and PF are worked out from it.
+  isBasic      Boolean        @default(false)
+  taxable      Boolean        @default(true)
+  includeInPf  Boolean        @default(false)
+  includeInEsi Boolean        @default(true)
+  includeInPt  Boolean        @default(true)
+  active       Boolean        @default(true)
+  sortOrder    Int            @default(0)
+  createdAt    DateTime       @default(now())
+
+  templateLines SalaryTemplateLine[]
+
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+}
+
+/// A reusable salary structure ("Standard", "Manager", ...): which components, and how each is worked out.
+model SalaryTemplate {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  lines    SalaryTemplateLine[]
+  salaries EmployeeSalary[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, id])
+}
+
+model SalaryTemplateLine {
+  id          String          @id @default(cuid())
+  companyId   String
+  templateId  String
+  template    SalaryTemplate  @relation(fields: [companyId, templateId], references: [companyId, id], onDelete: Cascade)
+  componentId String
+  component   SalaryComponent @relation(fields: [companyId, componentId], references: [companyId, id], onDelete: Restrict)
+  calcType    SalaryCalcType
+  value       Decimal         @default(0) @db.Decimal(14, 4)
+  sortOrder   Int             @default(0)
+
+  @@unique([templateId, componentId])
+  @@index([companyId])
+}
+
+/// An employee's salary from a date onward. A revision adds a row; old rows are kept (history).
+/// `lines` is a SNAPSHOT of the computed components, so later edits to components or templates never
+/// change what an employee was paid.
+model EmployeeSalary {
+  id               String          @id @default(cuid())
+  companyId        String
+  employeeId       String
+  employee         Employee        @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  templateId       String?
+  template         SalaryTemplate? @relation(fields: [companyId, templateId], references: [companyId, id], onDelete: Restrict)
+  effectiveFrom    DateTime        @db.Date
+  effectiveTo      DateTime?       @db.Date
+  ctcAnnual        Decimal         @db.Decimal(14, 2)
+  /// [{ code, name, monthlyAmount, isBasic, taxable, includeInPf, includeInEsi, includeInPt }]
+  lines            Json
+  grossMonthly     Decimal         @db.Decimal(14, 2)
+  employerPfOptIn  Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+
+  @@index([companyId, employeeId, effectiveFrom])
+}
+
+/* --------------------------- Shifts, holidays, rules -------------------------- */
+
+model Shift {
+  id                     String   @id @default(cuid())
+  companyId              String
+  name                   String
+  /// Minutes after midnight (0-1439). An end before the start means the shift crosses midnight (night shift).
+  startMinutes           Int
+  endMinutes             Int
+  breakMinutes           Int      @default(0)
+  lateGraceMinutes       Int      @default(0)
+  earlyLeaveGraceMinutes Int      @default(0)
+  /// Flexible shifts have no fixed in/out time: only the hours worked matter.
+  isFlexible             Boolean  @default(false)
+  /// Required working hours for a flexible shift.
+  flexibleMinutes        Int?
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now())
+
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, id])
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  companyId String
+  date      DateTime @db.Date
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, date])
+}
+
+/// One row per company: the working week and every attendance rule.
+model AttendanceRule {
+  id        String @id @default(cuid())
+  companyId String @unique
+
+  /// { mon: {mode:"WORKING"}, sat: {mode:"ALTERNATE", offWeeks:[2,4]}, sun: {mode:"OFF"} ... }
+  weeklyPattern Json
+
+  /// Working day with no attendance, no approved leave, not a holiday / weekly off => Absent.
+  /// Off by default: turn it on only once attendance is actually being recorded.
+  absentIfNoRecord Boolean @default(false)
+
+  lateAction              LateAction @default(MARK_LATE)
+  /// When lateAction = HALF_DAY: minutes late (beyond grace) at which a half day applies. null = any late arrival.
+  lateHalfDayAfterMinutes Int?
+  /// Every N late marks in a month cost one half day. 0 = off.
+  lateCountPerHalfDay     Int        @default(0)
+
+  earlyLeaveAction EarlyLeaveAction @default(MARK_EARLY)
+
+  /// Worked less than this many minutes => Half Day.
+  halfDayBelowMinutes Int @default(240)
+  /// Worked less than this many minutes => Absent. 0 = off.
+  absentBelowMinutes  Int @default(0)
+
+  /// Only an in-time or only an out-time was recorded.
+  missingPunchAction MissingPunchAction @default(PRESENT)
+
+  otEnabled       Boolean @default(false)
+  /// Whether overtime is actually paid. Hours are tracked either way.
+  otPayable       Boolean @default(false)
+  /// Ignore overtime shorter than this.
+  otMinMinutes    Int     @default(30)
+  otMultiplier    Decimal @default(1.5) @db.Decimal(4, 2)
+  /// Hours worked on a weekly off / holiday count fully as overtime.
+  otOnOffDays     Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Employee, salary and leave settings that don't warrant a table of their own. One row per company.
+model CompanySetting {
+  id                       String     @id @default(cuid())
+  companyId                String     @unique
+  /// Month the leave year starts (1 = January, 4 = April).
+  leaveYearStartMonth      Int        @default(1)
+  employeeCodePrefix       String     @default("EMP")
+  autoGenerateEmployeeCode Boolean    @default(false)
+  defaultTaxRegime         TaxRegime  @default(NEW)
+  defaultShiftId           String?
+  defaultLeavePolicyId     String?
+  /// What "one day of pay" means when a loss-of-pay day is deducted.
+  lopBasis                 LopBasis   @default(CALENDAR_DAYS)
+  updatedAt                DateTime   @updatedAt
+}
+
+/* ---------------------------------- Leave ------------------------------------- */
+
+/// A kind of leave the company uses. What each employee gets is decided by a LeavePolicy.
+model LeaveType {
+  id        String  @id @default(cuid())
+  companyId String
+  code      String
+  name      String
+  /// Unpaid types (Loss of Pay) cost salary and need no balance.
+  isPaid    Boolean @default(true)
+  active    Boolean @default(true)
+
+  policyRules LeavePolicyRule[]
+  ledger      LeaveLedger[]
+  requests    LeaveRequest[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, code])
+  @@unique([companyId, id])
+}
+
+model LeavePolicy {
+  id          String   @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  rules     LeavePolicyRule[]
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@unique([companyId, id])
+}
+
+/// What one leave type looks like inside one policy.
+model LeavePolicyRule {
+  id                  String      @id @default(cuid())
+  companyId           String
+  policyId            String
+  policy              LeavePolicy @relation(fields: [companyId, policyId], references: [companyId, id], onDelete: Cascade)
+  leaveTypeId         String
+  leaveType           LeaveType   @relation(fields: [companyId, leaveTypeId], references: [companyId, id], onDelete: Cascade)
+  /// Days granted per leave year.
+  entitlementDays     Decimal     @db.Decimal(6, 2)
+  accrual             AccrualMode @default(UPFRONT)
+  carryForward        Boolean     @default(false)
+  /// null = carry the whole balance (when carryForward is on).
+  maxCarryForwardDays Decimal?    @db.Decimal(6, 2)
+  /// Accrual stops at this balance. null = no cap.
+  maxBalance          Decimal?    @db.Decimal(6, 2)
+  encashable          Boolean     @default(false)
+  allowHalfDay        Boolean     @default(true)
+  maxConsecutiveDays  Int?
+  /// Whether weekly offs / holidays inside a leave period are counted as leave days.
+  countWeeklyOffs     Boolean     @default(false)
+  countHolidays       Boolean     @default(false)
+
+  @@unique([policyId, leaveTypeId])
+  @@index([companyId])
+}
+
+/// Every change to a leave balance is a row here; the balance is the SUM. Nothing is edited in place.
+model LeaveLedger {
+  id            String     @id @default(cuid())
+  companyId     String
+  employeeId    String
+  employee      Employee   @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  leaveTypeId   String
+  leaveType     LeaveType  @relation(fields: [companyId, leaveTypeId], references: [companyId, id], onDelete: Cascade)
+  kind          LedgerKind
+  /// Signed: accruals and openings are positive, leave taken and lapses negative.
+  days          Decimal    @db.Decimal(7, 2)
+  effectiveDate DateTime   @db.Date
+  /// Makes automatic entries idempotent, e.g. "ACC:2026-09" or "LAPSE:2026". Null for manual entries.
+  period        String?
+  refType       String?
+  refId         String?
+  note          String?
+  createdById   String?
+  createdAt     DateTime   @default(now())
+
+  @@unique([employeeId, leaveTypeId, kind, period])
+  @@index([companyId, employeeId, leaveTypeId])
+}
+
+model LeaveRequest {
+  id          String             @id @default(cuid())
+  companyId   String
+  employeeId  String
+  employee    Employee           @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType          @relation(fields: [companyId, leaveTypeId], references: [companyId, id], onDelete: Cascade)
+  startDate   DateTime           @db.Date
+  endDate     DateTime           @db.Date
+  /// Days actually counted against the balance (after excluding weekly offs / holidays).
+  days        Decimal            @default(0) @db.Decimal(5, 1)
+  isHalfDay   Boolean            @default(false)
+  reason      String?
+  status      LeaveRequestStatus @default(PENDING)
+  decidedById String?
+  decidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, status])
+}
+
+/* -------------------------------- Approvals ----------------------------------- */
+
+/// Who must approve a kind of request, in order. One workflow per company per entity type.
+model ApprovalWorkflow {
+  id         String  @id @default(cuid())
+  companyId  String
+  /// "LEAVE" today; more modules plug in later (ATTENDANCE_CORRECTION, SALARY_REVISION, ...).
+  entityType String
+  name       String
+  active     Boolean @default(true)
+
+  levels ApprovalLevel[]
+
+  @@unique([companyId, entityType])
+  @@unique([companyId, id])
+}
+
+model ApprovalLevel {
+  id           String           @id @default(cuid())
+  companyId    String
+  workflowId   String
+  workflow     ApprovalWorkflow @relation(fields: [companyId, workflowId], references: [companyId, id], onDelete: Cascade)
+  levelNo      Int
+  approverType ApproverType
+  /// Role key when approverType = ROLE (e.g. HR_MANAGER).
+  roleKey      String?
+
+  @@unique([workflowId, levelNo])
+  @@index([companyId])
+}
+
+model ApprovalRequest {
+  id                 String         @id @default(cuid())
+  companyId          String
+  entityType         String
+  entityId           String
+  requestedByUserId  String
+  /// Employee the request is for (drives "reporting manager" resolution).
+  subjectEmployeeId  String?
+  status             ApprovalStatus @default(PENDING)
+  currentLevel       Int            @default(1)
+  /// Copy of the workflow levels at submission: editing the workflow later never changes in-flight requests.
+  levelsSnapshot     Json
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  actions ApprovalAction[]
+
+  @@unique([entityType, entityId])
+  @@unique([companyId, id])
+  @@index([companyId, status])
+}
+
+model ApprovalAction {
+  id          String             @id @default(cuid())
+  companyId   String
+  requestId   String
+  request     ApprovalRequest    @relation(fields: [companyId, requestId], references: [companyId, id], onDelete: Cascade)
+  levelNo     Int
+  actorUserId String
+  actorName   String?
+  action      ApprovalActionType
+  comment     String?
+  createdAt   DateTime           @default(now())
+
+  @@index([companyId, requestId])
+}
+
+model AttendanceRecord {
+  id         String           @id @default(cuid())
+  companyId  String
+  employeeId String
+  employee   Employee         @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  date       DateTime         @db.Date
+  status     AttendanceStatus
+  /// In / out as real instants (company time zone is IST). Out may fall on the next calendar day.
+  inAt       DateTime?
+  outAt      DateTime?
+  workedMinutes       Int     @default(0)
+  lateMinutes         Int     @default(0)
+  earlyLeaveMinutes   Int     @default(0)
+  overtimeMinutes     Int     @default(0)
+  isLate              Boolean @default(false)
+  /// Comma-separated review flags, e.g. "MISSING_PUNCH".
+  flags               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([companyId, date])
+}
+
+model PayrollRun {
+  id          String           @id @default(cuid())
+  companyId   String
+  month       Int
+  year        Int
+  status      PayrollRunStatus @default(DRAFT)
+  createdById String
+  processedAt DateTime?
+  finalizedAt DateTime?
+
+  payslips Payslip[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, month, year])
+  @@unique([companyId, id])
+}
+
+/// Stores a frozen JSON snapshot of the calculation so historical payslips never change.
+model Payslip {
+  id              String     @id @default(cuid())
+  companyId       String
+  payrollRunId    String
+  payrollRun      PayrollRun @relation(fields: [companyId, payrollRunId], references: [companyId, id], onDelete: Cascade)
+  employeeId      String
+  employee        Employee   @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  grossPay        Decimal    @db.Decimal(14, 2)
+  netPay          Decimal    @db.Decimal(14, 2)
+  totalDeductions Decimal    @db.Decimal(14, 2)
+  breakdown       Json
+  pdfPath         String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([payrollRunId, employeeId])
+  @@index([companyId])
+}

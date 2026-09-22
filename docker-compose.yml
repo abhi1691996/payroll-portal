@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: payroll
+      POSTGRES_PASSWORD: payroll
+      POSTGRES_DB: payroll_portal
+    ports:
+      - "5432:5432"
+    volumes:
+      - payroll_db_data:/var/lib/postgresql/data
+
+volumes:
+  payroll_db_data:

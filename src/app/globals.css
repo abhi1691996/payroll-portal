@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Everything visual (brand colour, surfaces, radii) is defined here so the
+ * whole portal can be re-themed from one place.
+ */
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --color-brand-950: #1e1b4b;
+
+  --color-canvas: #f5f6fa;
+  --color-surface: #ffffff;
+  --color-line: #e6e8ef;
+  --color-ink: #12142b;
+  --color-ink-soft: #4a4f6a;
+  --color-ink-muted: #7b809a;
+
+  --shadow-card: 0 1px 2px rgb(18 20 43 / 0.04), 0 4px 16px -6px rgb(18 20 43 / 0.06);
+  --shadow-pop: 0 10px 40px -12px rgb(18 20 43 / 0.25);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  background: var(--color-canvas);
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Keyboard focus that is visible everywhere without shouting for mouse users. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-brand-100);
+}
+
+/* Subtle scrollbars for the wide attendance grid. */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #c9cddd transparent;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fade-up 0.35s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up {
+    animation: none;
+  }
+}

@@ -1,0 +1,231 @@
+generator client {
+  provider = "prisma-client-js"
+  // Read-only client for the pre-multi-tenant SQLite database; used only by scripts/migrate-legacy.ts.
+  output   = "../../node_modules/.legacy-prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("LEGACY_DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  HOLIDAY
+  WEEK_OFF
+  ON_LEAVE
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PROCESSED
+  FINALIZED
+}
+
+enum TaxRegime {
+  OLD
+  NEW
+}
+
+/// Single-row table holding this company's identity & statutory registration details.
+model Company {
+  id                String   @id @default(cuid())
+  name              String
+  address           String
+  pan               String?
+  tan               String?
+  pfEstablishmentId String?
+  esiEstablishmentId String?
+  state             String
+  logoUrl           String?
+  payCycleStartDay  Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(EMPLOYEE)
+  employee     Employee?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Employee {
+  id                String            @id @default(cuid())
+  userId            String            @unique
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode      String            @unique
+  firstName         String
+  lastName          String
+  personalEmail     String?
+  phone             String?
+  panNumber         String?
+  aadhaarLast4      String?
+  bankAccountNumber String?
+  bankIfsc          String?
+  department        String?
+  designation       String?
+  dateOfJoining     DateTime
+  dateOfExit        DateTime?
+  status            EmploymentStatus  @default(ACTIVE)
+  state             String
+
+  salaryStructures  SalaryStructure[]
+  attendanceRecords AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
+  leaveBalances     LeaveBalance[]
+  payslips          Payslip[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Versioned salary structure. A new row is created whenever an employee's pay changes;
+/// old rows are kept so historical payroll runs remain accurate.
+model SalaryStructure {
+  id                 String    @id @default(cuid())
+  employeeId         String
+  employee           Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  ctcAnnual          Decimal
+  basicMonthly       Decimal
+  hraMonthly         Decimal
+  specialAllowance   Decimal
+  otherAllowances    Decimal @default(0)
+  employerPfOptIn    Boolean   @default(true)
+  taxRegime          TaxRegime @default(NEW)
+
+  createdAt DateTime @default(now())
+
+  @@index([employeeId, effectiveFrom])
+}
+
+model AttendanceRecord {
+  id         String            @id @default(cuid())
+  employeeId String
+  employee   Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime
+  status     AttendanceStatus
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model LeaveType {
+  id                 String  @id @default(cuid())
+  name               String  @unique
+  annualQuota        Int
+  carryForwardAllowed Boolean @default(false)
+
+  balances LeaveBalance[]
+  requests LeaveRequest[]
+}
+
+model LeaveBalance {
+  id          String    @id @default(cuid())
+  employeeId  String
+  employee    Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  year        Int
+  balance     Decimal
+
+  @@unique([employeeId, leaveTypeId, year])
+}
+
+model LeaveRequest {
+  id          String              @id @default(cuid())
+  employeeId  String
+  employee    Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId String
+  leaveType   LeaveType           @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  startDate   DateTime
+  endDate     DateTime
+  reason      String?
+  status      LeaveRequestStatus  @default(PENDING)
+  decidedById String?
+  decidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Versioned statutory rates/slabs so past payroll runs remain accurate when rates change.
+model StatutoryConfig {
+  id                     String   @id @default(cuid())
+  effectiveFrom          DateTime
+  pfEmployeeRate         Decimal
+  pfEmployerRate         Decimal
+  pfWageCeiling          Decimal
+  esiEmployeeRate        Decimal
+  esiEmployerRate        Decimal
+  esiWageThreshold       Decimal
+  /// Professional tax slabs, e.g. [{"upTo":15000,"amount":0},{"upTo":25000,"amount":150},{"upTo":null,"amount":200}] per state
+  professionalTaxSlabs   Json
+  /// Income tax slabs by regime, e.g. {"OLD":[...],"NEW":[...]}
+  incomeTaxSlabs         Json
+
+  createdAt DateTime @default(now())
+}
+
+model PayrollRun {
+  id          String           @id @default(cuid())
+  month       Int
+  year        Int
+  status      PayrollRunStatus @default(DRAFT)
+  createdById String
+  processedAt DateTime?
+  finalizedAt DateTime?
+
+  payslips Payslip[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([month, year])
+}
+
+/// Stores a frozen JSON snapshot of the calculation breakdown so historical payslips
+/// never change even if StatutoryConfig or SalaryStructure change later.
+model Payslip {
+  id            String     @id @default(cuid())
+  payrollRunId  String
+  payrollRun    PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  employeeId    String
+  employee      Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  grossPay      Decimal
+  netPay        Decimal
+  totalDeductions Decimal
+  breakdown     Json
+  pdfPath       String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([payrollRunId, employeeId])
+}
