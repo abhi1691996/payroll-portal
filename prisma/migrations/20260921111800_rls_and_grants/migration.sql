@@ -13,8 +13,10 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'payroll_app') THEN
-    -- Development default. Rotate in production:  ALTER ROLE payroll_app PASSWORD '...';
-    CREATE ROLE payroll_app LOGIN PASSWORD 'payroll_app' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+    -- Placeholder password so hosts like Neon (which reject weak passwords outright, even
+    -- transiently) accept role creation. Rotate immediately after first run in any environment:
+    --   ALTER ROLE payroll_app PASSWORD '...';
+    CREATE ROLE payroll_app LOGIN PASSWORD '7iPVDWhhv4reUtgLiYX6NojvTpT!' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
   END IF;
 END
 $$;
