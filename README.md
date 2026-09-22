@@ -5,6 +5,7 @@ Multi-tenant payroll SaaS for small/medium businesses in India. Three levels of 
 **Employees**. Each company's data is completely isolated from every other company's.
 
 Architecture, data model and the delivery plan live in [`docs/architecture.md`](docs/architecture.md).
+Deploying to production: [`docs/deploy-vercel.md`](docs/deploy-vercel.md).
 **Status: phase 1 (foundation) is done** - tenancy, RBAC, audit log, Postgres with Row-Level Security,
 and a Super Admin portal where clients are added (with an invitation link for their admin), suspended
 and re-activated. The company setup wizard, configurable salary components, the approval engine and the
