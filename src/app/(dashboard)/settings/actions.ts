@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { assertPermission } from "@/server/rbac/guard";
 import { withTenant } from "@/server/tenancy/db";
 import { audit } from "@/server/audit/audit";
+import { incomeTaxSlabsSchema, professionalTaxSlabsSchema } from "@/lib/validations/statutory";
 
 /** Updates the signed-in user's own company. Statutory rates are platform-owned (see /platform). */
 export async function saveCompany(formData: FormData) {
@@ -51,6 +52,20 @@ function parseJson(raw: FormDataEntryValue | null, label: string) {
 }
 
 /**
+ * Parses and validates against the exact shape payroll reads (`src/lib/payroll-calculations.ts`).
+ * Without this, a pasted slab table in a slightly different shape saves fine here and only blows up
+ * — deep inside slab-tax math, as an unreadable exception — the next time someone runs payroll.
+ */
+function parseSlabs<T>(raw: FormDataEntryValue | null, label: string, schema: { safeParse: (v: unknown) => { success: boolean; data?: T; error?: { issues: { message: string }[] } } }): T {
+  const parsed = parseJson(raw, label);
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(`${label}: ${result.error!.issues.map((i) => i.message).join("; ")}`);
+  }
+  return result.data!;
+}
+
+/**
  * Adds a new effective-dated version of this company's statutory rates. Older versions are kept so
  * payroll for earlier months stays accurate.
  */
@@ -59,8 +74,8 @@ export async function addStatutoryConfig(formData: FormData) {
 
   const effectiveFrom = new Date(String(formData.get("effectiveFrom")));
   if (Number.isNaN(effectiveFrom.getTime())) throw new Error("Choose an effective date");
-  const professionalTaxSlabs = parseJson(formData.get("professionalTaxSlabs"), "Professional Tax slabs");
-  const incomeTaxSlabs = parseJson(formData.get("incomeTaxSlabs"), "Income tax slabs");
+  const professionalTaxSlabs = parseSlabs(formData.get("professionalTaxSlabs"), "Professional Tax slabs", professionalTaxSlabsSchema);
+  const incomeTaxSlabs = parseSlabs(formData.get("incomeTaxSlabs"), "Income tax slabs", incomeTaxSlabsSchema);
 
   const rates = {
     pfEmployeeRate: Number(formData.get("pfEmployeeRate")),

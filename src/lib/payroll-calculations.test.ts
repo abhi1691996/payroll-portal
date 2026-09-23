@@ -53,6 +53,14 @@ describe("calculateSlabTax", () => {
     const tax = calculateSlabTax(1600000, config.incomeTaxSlabs.NEW);
     expect(tax).toBeCloseTo(180000, 2);
   });
+
+  it("fails loudly on a malformed StatutoryConfig instead of throwing an unreadable TypeError", () => {
+    // A StatutoryConfig hand-edited into a wrong JSON shape (e.g. { slabs: [...] } instead of [...])
+    // used to reach here as `slabs.length === undefined` and crash with "slabs is not iterable".
+    // @ts-expect-error deliberately wrong shape, same as bad data coming out of the database
+    expect(() => calculateSlabTax(500000, { slabs: [] })).toThrow(/malformed/i);
+    expect(() => calculateSlabTax(500000, [])).toThrow(/malformed/i);
+  });
 });
 
 describe("calculateProfessionalTax", () => {

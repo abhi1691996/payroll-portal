@@ -116,6 +116,11 @@ function prorate(monthlyAmount: number, attendance: AttendanceInput): number {
  * portion of income that falls within that slab, not the whole income.
  */
 export function calculateSlabTax(annualIncome: number, slabs: TaxSlab[]): number {
+  if (!Array.isArray(slabs) || slabs.length === 0) {
+    // Malformed StatutoryConfig (e.g. hand-edited JSON in the wrong shape) — fail loudly and specifically
+    // rather than as "slabs is not iterable" deep in a payroll run. See src/lib/validations/statutory.ts.
+    throw new Error("Income tax slabs are missing or malformed for this period — check Settings -> Compliance rules.");
+  }
   let tax = 0;
   let previousCap = 0;
 
