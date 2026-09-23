@@ -124,7 +124,7 @@ export const employeesImporter: BulkImporter = {
         line,
         employeeCode: d.employeeCode,
         firstName: d.firstName,
-        lastName: d.lastName,
+        lastName: d.lastName ?? "",
         email: d.email,
         personalEmail: d.personalEmail ?? "",
         phone: d.phone ?? "",

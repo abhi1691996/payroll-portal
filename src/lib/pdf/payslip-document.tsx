@@ -127,6 +127,22 @@ export function PayslipDocument({
           <Text style={{ ...styles.label, fontWeight: 700 }}>Total deductions</Text>
           <Text style={styles.value}>{formatCurrency(breakdown.totalDeductions)}</Text>
         </View>
+        {breakdown.otherDeductionLines && breakdown.otherDeductionLines.length > 0 && (
+          <>
+            {breakdown.otherDeductionLines.map((l) => (
+              <View key={l.code} style={styles.row}>
+                <Text style={styles.label}>{l.name}</Text>
+                <Text>{formatCurrency(l.amount)}</Text>
+              </View>
+            ))}
+            <View style={styles.row}>
+              <Text style={{ ...styles.label, fontWeight: 700 }}>Total deducted</Text>
+              <Text style={styles.value}>
+                {formatCurrency(breakdown.totalDeductions + breakdown.otherDeductionLines.reduce((s, l) => s + l.amount, 0))}
+              </Text>
+            </View>
+          </>
+        )}
 
         <View style={styles.netPayBox}>
           <Text style={styles.netPayLabel}>Net pay</Text>

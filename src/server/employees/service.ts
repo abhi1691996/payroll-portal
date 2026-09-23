@@ -5,7 +5,8 @@ import { audit } from "@/server/audit/audit";
 export interface NewEmployeeInput {
   employeeCode: string;
   firstName: string;
-  lastName: string;
+  /** Optional — not every employee goes by a surname. */
+  lastName?: string | null;
   /** Login email. */
   email: string;
   personalEmail?: string | null;
@@ -19,6 +20,7 @@ export interface NewEmployeeInput {
   dateOfJoining: Date;
   state: string;
   taxRegime?: "OLD" | "NEW";
+  category?: "WHITE_COLLAR" | "BLUE_COLLAR" | "OTHER";
   passwordHash: string;
 }
 
@@ -39,7 +41,7 @@ export async function createEmployeeWithLogin(
   const user = await db.user.create({
     data: {
       email: input.email.trim().toLowerCase(),
-      name: `${input.firstName} ${input.lastName}`,
+      name: `${input.firstName} ${input.lastName ?? ""}`.trim(),
       passwordHash: input.passwordHash,
       status: "ACTIVE",
       userRoles: { create: { roleId: employeeRole.id, companyId: ctx.companyId } },
@@ -48,7 +50,8 @@ export async function createEmployeeWithLogin(
           companyId: ctx.companyId,
           employeeCode: input.employeeCode,
           firstName: input.firstName,
-          lastName: input.lastName,
+          lastName: input.lastName ?? "",
+          category: input.category ?? "WHITE_COLLAR",
           personalEmail: input.personalEmail || null,
           phone: input.phone || null,
           panNumber: input.panNumber || null,
@@ -73,7 +76,7 @@ export async function createEmployeeWithLogin(
     entityId: user.employee!.id,
     newValue: {
       employeeCode: input.employeeCode,
-      name: `${input.firstName} ${input.lastName}`,
+      name: `${input.firstName} ${input.lastName ?? ""}`.trim(),
       email: user.email,
       department: input.department,
       dateOfJoining: input.dateOfJoining,

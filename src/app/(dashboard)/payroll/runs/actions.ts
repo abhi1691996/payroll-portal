@@ -7,6 +7,7 @@ import { withTenant } from "@/server/tenancy/db";
 import { audit } from "@/server/audit/audit";
 import { loadHolidays, loadRules } from "@/server/rules/load";
 import { ensureLifecycleStatuses } from "@/server/employees/lifecycle";
+import { applyLoanDeductions } from "@/server/loans/service";
 import { approvedLeaveMap } from "@/server/leave/days";
 import { readLines } from "@/server/salary/service";
 import { classifyDay, eachDate, isoDate } from "@/lib/attendance/calendar";
@@ -77,6 +78,31 @@ export async function processPayrollRun(formData: FormData) {
         update: { status: "PROCESSED", processedAt: new Date() },
       });
 
+      // Loan/advance deductions the admin chose to close for this period (checkboxes on the run form).
+      // Re-running the same month must keep charging what an earlier processing of THIS run already
+      // deducted (that ledger entry doesn't go away just because payslips are being recomputed), and must
+      // never charge it twice — a loan already deducted for (loanId, month, year) is no longer "eligible",
+      // so a stale re-submitted checkbox has no effect.
+      type DeductionLine = { code: string; name: string; amount: number };
+      const loanDeductions = new Map<string, DeductionLine[]>();
+      const addDeduction = (employeeId: string, line: DeductionLine) => {
+        loanDeductions.set(employeeId, [...(loanDeductions.get(employeeId) ?? []), line]);
+      };
+      for (const inst of await db.loanInstallment.findMany({
+        where: { payrollRunId: run.id },
+        include: { loan: { select: { employeeId: true, type: true } } },
+      })) {
+        addDeduction(inst.loan.employeeId, {
+          code: inst.loan.type === "LOAN" ? "LOAN_REPAY" : "ADVANCE_REPAY",
+          name: inst.loan.type === "LOAN" ? "Loan repayment" : "Advance repayment",
+          amount: Number(inst.amount),
+        });
+      }
+      const selectedLoanIds = [...formData.keys()].filter((k) => k.startsWith("loan_") && formData.get(k) === "on").map((k) => k.slice(5));
+      for (const [, entry] of await applyLoanDeductions(db, ctx.companyId, run.id, month, year, selectedLoanIds)) {
+        for (const line of entry.deductionLines) addDeduction(entry.employeeId, line);
+      }
+
       const payslipRows: Prisma.PayslipCreateManyInput[] = [];
       let skipped = 0;
 
@@ -133,6 +159,13 @@ export async function processPayrollRun(formData: FormData) {
           lateMarks: lop.lateMarks, lateHalfDays: lop.lateHalfDays, overtimeMinutes,
           suspendedDays: lop.excludedDays, separatedDays: lop.separatedDays,
         };
+
+        // Loan/advance repayments: post-tax, so they reduce net pay without touching the statutory figures.
+        const employeeLoanDeductions = loanDeductions.get(employee.id);
+        if (employeeLoanDeductions?.length) {
+          breakdown.otherDeductionLines = employeeLoanDeductions;
+          breakdown.netPay = round2(breakdown.netPay - employeeLoanDeductions.reduce((s, l) => s + l.amount, 0));
+        }
 
         payslipRows.push({
           companyId: ctx.companyId,

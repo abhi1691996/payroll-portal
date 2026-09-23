@@ -25,6 +25,8 @@ const TENANT_MODELS = new Set([
   "Employee",
   "EmployeeSuspension",
   "EmployeeSeparation",
+  "EmployeeLoan",
+  "LoanInstallment",
   "AttendanceRecord",
   "LeaveType",
   "LeaveRequest",

@@ -8,8 +8,8 @@ import { withTenant } from "@/server/tenancy/db";
 import type { PermissionScope } from "@prisma/client";
 
 interface NavEntry extends NavItem {
-  /** Permission required to see this item (at `minScope` or wider). Omit for "everyone". */
-  permission?: PermissionKey;
+  /** Permission(s) required to see this item (at `minScope` or wider) — any one is enough. Omit for "everyone". */
+  permission?: PermissionKey | PermissionKey[];
   minScope?: PermissionScope;
 }
 
@@ -24,6 +24,7 @@ const SECTIONS: { title: string; items: NavEntry[] }[] = [
       { href: "/employees", label: "Employees", icon: "users", permission: "employee.read", minScope: "TEAM" },
       { href: "/attendance", label: "Attendance", icon: "attendance", permission: "attendance.read" },
       { href: "/leave", label: "Leave", icon: "leave", permission: "leave.read" },
+      { href: "/loans", label: "Loans & advances", icon: "payroll", permission: ["loan.request", "loan.manage"] },
     ],
   },
   {
@@ -56,7 +57,7 @@ export default async function DashboardLayout({
   const sections: NavSection[] = SECTIONS.map((section) => ({
     title: section.title,
     items: section.items
-      .filter((item) => !item.permission || can(ctx, item.permission, item.minScope ?? "OWN"))
+      .filter((item) => !item.permission || [item.permission].flat().some((p) => can(ctx, p, item.minScope ?? "OWN")))
       .map(({ href, label, icon }) => ({ href, label, icon })),
   })).filter((section) => section.items.length > 0);
 

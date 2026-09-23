@@ -12,6 +12,7 @@ import { loadRules } from "@/server/rules/load";
 import { findTakenEmails } from "@/server/users/email-registry";
 import { hashPassword } from "@/lib/password";
 import {
+  employeeProfileSchema,
   employeeSchema,
 } from "@/lib/validations/employee";
 
@@ -34,6 +35,7 @@ export async function createEmployee(formData: FormData) {
     dateOfJoining: formData.get("dateOfJoining"),
     state: formData.get("state"),
     taxRegime: formData.get("taxRegime") || "NEW",
+    category: formData.get("category") || "WHITE_COLLAR",
   });
 
   if (!parsed.success) {
@@ -136,6 +138,74 @@ export async function updateWorkSettings(employeeId: string, formData: FormData)
   });
 
   revalidatePath(`/employees/${employeeId}`);
+}
+
+/**
+ * Edits an existing employee's profile — name, category, contact, department/designation, state, PAN,
+ * bank details, date of joining. The login email and employee code stay fixed (changing either has
+ * knock-on effects elsewhere — logins, bulk-upload matching, payslip history — that this form doesn't
+ * try to handle).
+ */
+export async function updateEmployeeProfile(employeeId: string, formData: FormData) {
+  const ctx = await assertPermission("employee.update", "COMPANY");
+
+  const parsed = employeeProfileSchema.safeParse({
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName") ?? "",
+    personalEmail: formData.get("personalEmail") ?? "",
+    phone: formData.get("phone") ?? "",
+    panNumber: (formData.get("panNumber") as string)?.toUpperCase() ?? "",
+    aadhaarLast4: formData.get("aadhaarLast4") ?? "",
+    bankAccountNumber: formData.get("bankAccountNumber") ?? "",
+    bankIfsc: (formData.get("bankIfsc") as string)?.toUpperCase() ?? "",
+    department: formData.get("department") ?? "",
+    designation: formData.get("designation") ?? "",
+    dateOfJoining: formData.get("dateOfJoining"),
+    state: formData.get("state"),
+    taxRegime: formData.get("taxRegime") || "NEW",
+    category: formData.get("category") || "WHITE_COLLAR",
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join(", "));
+  const d = parsed.data;
+
+  await withTenant(ctx.companyId, async (db) => {
+    const before = await db.employee.findUnique({ where: { id: employeeId } });
+    if (!before) throw new Error("Employee not found");
+
+    const after = await db.employee.update({
+      where: { id: employeeId },
+      data: {
+        firstName: d.firstName,
+        lastName: d.lastName ?? "",
+        category: d.category,
+        personalEmail: d.personalEmail || null,
+        phone: d.phone || null,
+        panNumber: d.panNumber || null,
+        aadhaarLast4: d.aadhaarLast4 || null,
+        bankAccountNumber: d.bankAccountNumber || null,
+        bankIfsc: d.bankIfsc || null,
+        department: d.department || null,
+        designation: d.designation || null,
+        dateOfJoining: new Date(d.dateOfJoining),
+        state: d.state,
+      },
+    });
+    // Keep the login's display name in step, if this employee has a portal login.
+    if (before.userId) {
+      await db.user.update({ where: { id: before.userId }, data: { name: `${d.firstName} ${d.lastName ?? ""}`.trim() } });
+    }
+    await audit(db, ctx, {
+      module: "employees",
+      action: "employee.profile.update",
+      entityType: "Employee",
+      entityId: employeeId,
+      oldValue: { firstName: before.firstName, lastName: before.lastName, category: before.category, department: before.department, designation: before.designation, state: before.state },
+      newValue: { employeeCode: after.employeeCode, firstName: after.firstName, lastName: after.lastName, category: after.category, department: after.department, designation: after.designation, state: after.state },
+    });
+  });
+
+  revalidatePath(`/employees/${employeeId}`);
+  revalidatePath("/employees");
 }
 
 /**

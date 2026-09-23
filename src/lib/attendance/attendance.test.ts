@@ -205,4 +205,11 @@ describe("loss of pay", () => {
     const records = new Map([["2026-09-06", { status: "ABSENT" as const, isLate: false }]]); // a Sunday
     expect(computeLop({ ...base, records }).lopDays).toBe(0);
   });
+  it("work from home is paid the same as present", () => {
+    const records = new Map([
+      ["2026-09-01", { status: "WFH" as const, isLate: false }],
+      ["2026-09-02", { status: "WFH" as const, isLate: false }],
+    ]);
+    expect(computeLop({ ...base, records }).lopDays).toBe(0);
+  });
 });

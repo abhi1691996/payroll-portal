@@ -3,7 +3,7 @@ import { z } from "zod";
 export const employeeSchema = z.object({
   employeeCode: z.string().min(1, "Employee code is required"),
   firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
+  lastName: z.string().optional().or(z.literal("")),
   email: z.string().email("A valid login email is required"),
   personalEmail: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional().or(z.literal("")),
@@ -28,9 +28,14 @@ export const employeeSchema = z.object({
   dateOfJoining: z.string().min(1, "Date of joining is required"),
   state: z.string().min(1, "State is required (used for Professional Tax slabs)"),
   taxRegime: z.enum(["OLD", "NEW"]).default("NEW"),
+  category: z.enum(["WHITE_COLLAR", "BLUE_COLLAR", "OTHER"]).default("WHITE_COLLAR"),
 });
 
 export type EmployeeFormValues = z.infer<typeof employeeSchema>;
+
+/** Editing an existing employee's profile — everything except the login email and employee code, which stay fixed. */
+export const employeeProfileSchema = employeeSchema.omit({ employeeCode: true, email: true });
+export type EmployeeProfileFormValues = z.infer<typeof employeeProfileSchema>;
 
 export const salaryStructureSchema = z.object({
   effectiveFrom: z.string().min(1, "Effective date is required"),

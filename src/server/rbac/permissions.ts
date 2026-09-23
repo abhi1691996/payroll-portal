@@ -15,6 +15,8 @@ export const PERMISSIONS = {
   "employee.salary.write": { module: "Employees", description: "Change salary and upload salary structures" },
   "employee.offboard": { module: "Employees", description: "Suspend, reinstate, terminate and decide resignations" },
   "resignation.request": { module: "Employees", description: "Apply for their own resignation" },
+  "loan.request": { module: "Employees", description: "Apply for a loan or salary advance" },
+  "loan.manage": { module: "Employees", description: "Approve, reject and process loan/advance deductions" },
 
   // Attendance
   "attendance.read": { module: "Attendance", description: "View attendance" },

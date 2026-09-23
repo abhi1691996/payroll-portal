@@ -10,7 +10,7 @@ import { daysInMonth } from "@/lib/dates";
 import { parseTimeToMinutes } from "@/lib/time";
 import type { AttendanceStatus } from "@prisma/client";
 
-const VALID_STATUSES: AttendanceStatus[] = ["PRESENT", "ABSENT", "HALF_DAY", "HOLIDAY", "WEEK_OFF", "ON_LEAVE"];
+const VALID_STATUSES: AttendanceStatus[] = ["PRESENT", "ABSENT", "HALF_DAY", "HOLIDAY", "WEEK_OFF", "ON_LEAVE", "WFH"];
 
 /**
  * Saves one employee's month. For each day: an in time, an out time and a status. "Auto" (or blank) means the

@@ -7,6 +7,12 @@ export const INDIAN_STATES = [
   "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry",
 ];
 
+export const EMPLOYEE_CATEGORIES = [
+  { value: "WHITE_COLLAR", label: "White collar" },
+  { value: "BLUE_COLLAR", label: "Blue collar" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
 /** Only these registrations have a CIN (Companies Act). LLPs have an LLPIN; firms and proprietors have neither. */
 export const COMPANY_TYPES_WITH_CIN = ["Private Limited", "Public Limited"];
 

@@ -35,7 +35,7 @@ import { classifyDay } from "@/lib/attendance/calendar";
 import { formatHours, minutesSinceLocalMidnight, toHHMM, formatMinutes } from "@/lib/time";
 import { saveAttendance } from "./actions";
 
-const STATUS_OPTIONS = ["PRESENT", "ABSENT", "HALF_DAY", "HOLIDAY", "WEEK_OFF", "ON_LEAVE"] as const;
+const STATUS_OPTIONS = ["PRESENT", "ABSENT", "HALF_DAY", "HOLIDAY", "WEEK_OFF", "ON_LEAVE", "WFH"] as const;
 
 /** Cell colours for the month grid and the employee view. */
 const CELL: Record<AttendanceStatus, string> = {
@@ -45,16 +45,23 @@ const CELL: Record<AttendanceStatus, string> = {
   HOLIDAY: "bg-sky-100 text-sky-700",
   WEEK_OFF: "bg-slate-100 text-slate-500",
   ON_LEAVE: "bg-violet-100 text-violet-700",
+  WFH: "bg-teal-100 text-teal-700",
 };
 
-const STATUS_BADGE_TONE: Record<AttendanceStatus, "green" | "red" | "amber" | "sky" | "slate" | "violet"> = {
+const STATUS_BADGE_TONE: Record<AttendanceStatus, "green" | "red" | "amber" | "sky" | "slate" | "violet" | "brand"> = {
   PRESENT: "green",
   ABSENT: "red",
   HALF_DAY: "amber",
   HOLIDAY: "sky",
   WEEK_OFF: "slate",
   ON_LEAVE: "violet",
+  WFH: "brand",
 };
+
+/** titleCase() mangles the acronym ("Wfh"); everywhere a status is shown to a person, use this instead. */
+function statusLabel(s: AttendanceStatus): string {
+  return s === "WFH" ? "WFH" : titleCase(s);
+}
 
 function Legend() {
   return (
@@ -64,7 +71,7 @@ function Legend() {
           <span className={cx("grid size-5 place-items-center rounded text-[10px] font-bold", CELL[s])}>
             {ATTENDANCE_SHORT_CODE[s]}
           </span>
-          {titleCase(s)}
+          {statusLabel(s)}
         </li>
       ))}
     </ul>
@@ -147,7 +154,7 @@ export default async function AttendancePage({
                     <Td>
                       {status ? (
                         <span className="flex flex-wrap items-center gap-1.5">
-                          <Badge tone={STATUS_BADGE_TONE[status]}>{titleCase(status)}</Badge>
+                          <Badge tone={STATUS_BADGE_TONE[status]}>{statusLabel(status)}</Badge>
                           {rec?.isLate && <Badge tone="amber">Late {rec.lateMinutes}m</Badge>}
                           {rec && rec.earlyLeaveMinutes > 0 && <Badge tone="amber">Early {rec.earlyLeaveMinutes}m</Badge>}
                           {rec && rec.overtimeMinutes > 0 && <Badge tone="sky">OT {formatHours(rec.overtimeMinutes)}</Badge>}
@@ -193,7 +200,7 @@ export default async function AttendancePage({
         unit="row"
         title="Import attendance from CSV"
         description="Use the monthly grid (one row per employee, one column per day) or a daily list with in / out times (one row per employee per day). We detect which from the header."
-        columnsHint="Grid: employeeCode, 1…31 with codes P A HD HOL WO L. List: employeeCode, date, then inTime and outTime (09:30, 9:30 AM, 18:30) and/or status — times are turned into a status by your shift and attendance rules."
+        columnsHint="Grid: employeeCode, 1…31 with codes P A HD HOL WO L WFH. List: employeeCode, date, then inTime and outTime (09:30, 9:30 AM, 18:30) and/or status — times are turned into a status by your shift and attendance rules."
         params={{ year, month }}
         templates={[
           { label: `Grid template (${label})`, href: `/bulk/attendance-grid/template.csv?${monthQuery}` },
@@ -343,7 +350,7 @@ export default async function AttendancePage({
                         <td key={d} className="border-b border-line/70 p-0.5 text-center">
                           {s ? (
                             <span
-                              title={`${d} ${label} — ${titleCase(s)}`}
+                              title={`${d} ${label} — ${statusLabel(s)}`}
                               className={cx(
                                 "grid h-7 w-7 place-items-center rounded-md text-[11px] font-bold",
                                 CELL[s]
@@ -463,12 +470,12 @@ export default async function AttendancePage({
                           <select name={`status-${day}`} defaultValue={status} aria-label={`Status for ${day} ${label}`} className={cx(inputCompact, "w-44")}>
                             <option value="AUTO">Auto (from times)</option>
                             {STATUS_OPTIONS.map((s) => (
-                              <option key={s} value={s}>{titleCase(s)}</option>
+                              <option key={s} value={s}>{statusLabel(s)}</option>
                             ))}
                           </select>
                           {rec && (
                             <span className="flex flex-wrap gap-1">
-                              <Badge tone={STATUS_BADGE_TONE[rec.status]}>{titleCase(rec.status)}</Badge>
+                              <Badge tone={STATUS_BADGE_TONE[rec.status]}>{statusLabel(rec.status)}</Badge>
                               {rec.isLate && <Badge tone="amber">Late {rec.lateMinutes}m</Badge>}
                               {rec.earlyLeaveMinutes > 0 && <Badge tone="amber">Early {rec.earlyLeaveMinutes}m</Badge>}
                               {rec.overtimeMinutes > 0 && <Badge tone="sky">OT {formatHours(rec.overtimeMinutes)}</Badge>}

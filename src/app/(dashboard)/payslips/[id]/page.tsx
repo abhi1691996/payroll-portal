@@ -90,6 +90,18 @@ export default async function PayslipDetailPage({
             <Line label="Professional Tax" value={breakdown.employeeDeductions.professionalTax} />
             <Line label="TDS" value={breakdown.employeeDeductions.tds} />
             <Line label="Total deductions" value={breakdown.totalDeductions} strong />
+            {breakdown.otherDeductionLines && breakdown.otherDeductionLines.length > 0 && (
+              <>
+                {breakdown.otherDeductionLines.map((l) => (
+                  <Line key={l.code} label={l.name} value={l.amount} />
+                ))}
+                <Line
+                  label="Total deducted"
+                  value={breakdown.totalDeductions + breakdown.otherDeductionLines.reduce((s, l) => s + l.amount, 0)}
+                  strong
+                />
+              </>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { Alert, Card, CardHeader, Field, PageHeader, SubmitButton, TextInput, LinkButton, inputClass } from "@/components/ui";
 import { requirePermission } from "@/server/rbac/guard";
+import { EMPLOYEE_CATEGORIES } from "@/lib/india";
 import { createEmployee } from "../actions";
 
 export default async function NewEmployeePage() {
@@ -24,9 +25,16 @@ export default async function NewEmployeePage() {
             <TextInput label="Employee code" name="employeeCode" placeholder="EMP101" hint="Leave blank to number automatically (switch on under Settings → Employees)." />
             <TextInput label="Date of joining" name="dateOfJoining" type="date" required />
             <TextInput label="First name" name="firstName" required />
-            <TextInput label="Last name" name="lastName" required />
+            <TextInput label="Last name" name="lastName" hint="Optional." />
             <TextInput label="Department" name="department" />
             <TextInput label="Designation" name="designation" />
+            <Field label="Category">
+              <select name="category" defaultValue="WHITE_COLLAR" className={inputClass}>
+                {EMPLOYEE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </Field>
             <TextInput
               label="State"
               name="state"

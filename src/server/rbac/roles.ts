@@ -58,6 +58,7 @@ export const SYSTEM_ROLES: RoleTemplate[] = [
       "payslip.read": "COMPANY",
       "report.read": "COMPANY",
       "settings.read": "COMPANY",
+      "loan.manage": "COMPANY",
     },
   },
   {
@@ -93,6 +94,7 @@ export const SYSTEM_ROLES: RoleTemplate[] = [
       "leave.read": "OWN",
       "leave.request": "OWN",
       "resignation.request": "OWN",
+      "loan.request": "OWN",
       "payslip.read": "OWN",
     },
   },

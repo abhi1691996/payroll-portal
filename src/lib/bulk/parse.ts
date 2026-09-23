@@ -87,10 +87,12 @@ const ATTENDANCE_CODES: Record<string, AttendanceStatus> = {
   onleave: "ON_LEAVE",
   leave: "ON_LEAVE",
   l: "ON_LEAVE",
+  wfh: "WFH",
+  workfromhome: "WFH",
   ol: "ON_LEAVE",
 };
 
-/** Accepts full names (PRESENT, Half Day, WEEK_OFF) and short codes (P, A, HD, HOL, WO, L). */
+/** Accepts full names (PRESENT, Half Day, WEEK_OFF) and short codes (P, A, HD, HOL, WO, L, WFH). */
 export function parseAttendanceStatus(raw: string): AttendanceStatus | null {
   const key = raw.toLowerCase().replace(/[^a-z]/g, "");
   return ATTENDANCE_CODES[key] ?? null;
@@ -104,6 +106,7 @@ export const ATTENDANCE_SHORT_CODE: Record<AttendanceStatus, string> = {
   HOLIDAY: "HOL",
   WEEK_OFF: "WO",
   ON_LEAVE: "L",
+  WFH: "WFH",
 };
 
 /** Generates a readable temporary password, avoiding look-alike characters (0/O, 1/l/I). */

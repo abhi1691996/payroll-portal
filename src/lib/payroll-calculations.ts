@@ -96,6 +96,12 @@ export interface PayrollBreakdown {
   };
   totalDeductions: number;
   netPay: number;
+  /**
+   * Non-statutory deductions layered on top after the fact — currently loan/advance repayments an admin
+   * chose to deduct this run (see `processPayrollRun`). Not part of `totalDeductions`/`employeeDeductions`
+   * (those stay the statutory figure, for statutory reports); `netPay` above already has these subtracted.
+   */
+  otherDeductionLines?: { code: string; name: string; amount: number }[];
 }
 
 function round2(value: number): number {

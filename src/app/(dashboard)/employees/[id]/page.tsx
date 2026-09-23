@@ -8,6 +8,7 @@ import { ensureLifecycleStatuses, SEPARATED_STATUSES } from "@/server/employees/
 import { loadTemplates, readLines, toTemplateLines } from "@/server/salary/service";
 import { formatMinutes } from "@/lib/time";
 import { fmtDate, inr } from "@/lib/format";
+import { EMPLOYEE_CATEGORIES } from "@/lib/india";
 import { SalaryAssignForm } from "@/components/salary-assign-form";
 import { decisionRoute } from "@/server/approvals/service";
 import {
@@ -28,8 +29,9 @@ import {
   Tr,
   buttonClass,
   inputClass,
+  TextInput,
 } from "@/components/ui";
-import { assignEmployeeSalary, updateTaxRegime, updateWorkSettings } from "../actions";
+import { assignEmployeeSalary, updateEmployeeProfile, updateTaxRegime, updateWorkSettings } from "../actions";
 import {
   decideResignationAction,
   endSuspensionAction,
@@ -163,6 +165,7 @@ export default async function EmployeeDetailPage({
           <Detail label="Phone" value={employee.phone} />
           <Detail label="Department" value={employee.department} />
           <Detail label="Designation" value={employee.designation} />
+          <Detail label="Category" value={EMPLOYEE_CATEGORIES.find((c) => c.value === employee.category)?.label} />
           <Detail label="State" value={employee.state} />
           <Detail label="Joined" value={fmtDate(employee.dateOfJoining)} />
           <Detail label="Income-tax regime" value={employee.taxRegime === "OLD" ? "Old regime" : "New regime"} />
@@ -175,6 +178,40 @@ export default async function EmployeeDetailPage({
           <Detail label="IFSC" value={employee.bankIfsc} />
         </dl>
       </Card>
+
+      {canEditWork && (
+        <Card>
+          <CardHeader title="Edit profile" description="Name, category, contact and statutory details. The login email and employee code can't be changed here." />
+          <form
+            key={`${employee.firstName}${employee.lastName}${employee.category}${employee.department}${employee.designation}${employee.dateOfJoining.toISOString()}`}
+            action={updateEmployeeProfile.bind(null, employee.id)}
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <TextInput label="First name" name="firstName" defaultValue={employee.firstName} required />
+            <TextInput label="Last name" name="lastName" defaultValue={employee.lastName} hint="Optional." />
+            <Field label="Category">
+              <select name="category" defaultValue={employee.category} className={inputClass}>
+                {EMPLOYEE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>{c.label}</option>
+                ))}
+              </select>
+            </Field>
+            <TextInput label="Department" name="department" defaultValue={employee.department ?? ""} />
+            <TextInput label="Designation" name="designation" defaultValue={employee.designation ?? ""} />
+            <TextInput label="State" name="state" defaultValue={employee.state} required hint="Used to pick Professional Tax slabs." />
+            <TextInput label="Date of joining" name="dateOfJoining" type="date" defaultValue={employee.dateOfJoining.toISOString().slice(0, 10)} required />
+            <TextInput label="Personal email" name="personalEmail" type="email" defaultValue={employee.personalEmail ?? ""} />
+            <TextInput label="Phone" name="phone" defaultValue={employee.phone ?? ""} />
+            <TextInput label="PAN" name="panNumber" defaultValue={employee.panNumber ?? ""} placeholder="ABCDE1234F" />
+            <TextInput label="Aadhaar (last 4 digits)" name="aadhaarLast4" defaultValue={employee.aadhaarLast4 ?? ""} />
+            <TextInput label="Bank account number" name="bankAccountNumber" defaultValue={employee.bankAccountNumber ?? ""} />
+            <TextInput label="Bank IFSC" name="bankIfsc" defaultValue={employee.bankIfsc ?? ""} placeholder="ABCD0123456" />
+            <div className="sm:col-span-2 lg:col-span-3">
+              <SubmitButton icon="check">Save profile</SubmitButton>
+            </div>
+          </form>
+        </Card>
+      )}
 
       {canEditWork && (
         <Card>

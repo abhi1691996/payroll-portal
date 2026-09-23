@@ -106,7 +106,7 @@ export const attendanceImporter: BulkImporter = {
 
         const statusRaw = v.status ?? "";
         const status = statusRaw ? parseAttendanceStatus(statusRaw) : null;
-        if (statusRaw && !status) bad(line, `status: "${statusRaw}" isn't valid — use P, A, HD, HOL, WO or L (or leave blank to work it out from the times)`);
+        if (statusRaw && !status) bad(line, `status: "${statusRaw}" isn't valid — use P, A, HD, HOL, WO, L or WFH (or leave blank to work it out from the times)`);
 
         const inRaw = v.intime ?? "";
         const outRaw = v.outtime ?? "";
@@ -139,7 +139,7 @@ export const attendanceImporter: BulkImporter = {
           }
           const status = parseAttendanceStatus(cell);
           if (!status) {
-            bad(line, `Day ${day}: "${cell}" isn't valid — use P, A, HD, HOL, WO or L`);
+            bad(line, `Day ${day}: "${cell}" isn't valid — use P, A, HD, HOL, WO, L or WFH`);
             rowOk = false;
             continue;
           }

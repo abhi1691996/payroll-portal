@@ -3,8 +3,11 @@ import { requirePermission } from "@/server/rbac/guard";
 import { can } from "@/server/rbac/context";
 import { withTenant } from "@/server/tenancy/db";
 import { monthLabel } from "@/lib/dates";
+import { inr } from "@/lib/format";
+import { eligibleLoansFor } from "@/server/loans/service";
 import {
   Alert,
+  buttonClass,
   Card,
   CardHeader,
   cx,
@@ -28,18 +31,26 @@ const MONTH_NAMES = Array.from({ length: 12 }, (_, i) =>
   new Date(2000, i, 1).toLocaleDateString("en-IN", { month: "long" })
 );
 
-export default async function PayrollRunsPage() {
+export default async function PayrollRunsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string; year?: string }>;
+}) {
   const ctx = await requirePermission("payroll.read", "COMPANY");
   const canRun = can(ctx, "payroll.run", "COMPANY");
-  const { runs, missingSalary } = await withTenant(ctx.companyId, async (db) => ({
+  const now = new Date();
+  const sp = await searchParams;
+  const month = Number(sp.month) || now.getMonth() + 1;
+  const year = Number(sp.year) || now.getFullYear();
+
+  const { runs, missingSalary, eligibleLoans } = await withTenant(ctx.companyId, async (db) => ({
     runs: await db.payrollRun.findMany({
       orderBy: [{ year: "desc" }, { month: "desc" }],
       include: { _count: { select: { payslips: true } } },
     }),
     missingSalary: await db.employee.count({ where: { status: "ACTIVE", salaries: { none: {} } } }),
+    eligibleLoans: canRun && month >= 1 && month <= 12 ? await eligibleLoansFor(db, ctx.companyId, month, year) : [],
   }));
-
-  const now = new Date();
 
   return (
     <div className="max-w-5xl">
@@ -51,9 +62,10 @@ export default async function PayrollRunsPage() {
       {canRun && (
       <Card className="mb-8">
         <CardHeader title="Run payroll" description="Re-running a month recomputes and replaces its payslips until it is finalized." />
-        <form action={processPayrollRun} className="flex flex-wrap items-end gap-4">
+
+        <form method="get" className="mb-5 flex flex-wrap items-end gap-4 border-b border-line pb-5">
           <Field label="Month">
-            <select name="month" defaultValue={now.getMonth() + 1} className={cx(inputAuto, "w-44")}>
+            <select name="month" defaultValue={month} className={cx(inputAuto, "w-44")}>
               {MONTH_NAMES.map((name, i) => (
                 <option key={name} value={i + 1}>
                   {name}
@@ -61,8 +73,41 @@ export default async function PayrollRunsPage() {
               ))}
             </select>
           </Field>
-          <TextInput label="Year" name="year" type="number" defaultValue={now.getFullYear()} className="w-28" />
-          <SubmitButton icon="payroll">Process payroll</SubmitButton>
+          <TextInput label="Year" name="year" type="number" defaultValue={year} className="w-28" />
+          <button className={buttonClass("secondary")}>Show deductions to close</button>
+        </form>
+
+        <form action={processPayrollRun} className="space-y-5">
+          <input type="hidden" name="month" value={month} />
+          <input type="hidden" name="year" value={year} />
+
+          {eligibleLoans.length > 0 && (
+            <div>
+              <h3 className="mb-1 text-sm font-semibold text-ink">Loan &amp; advance deductions for {monthLabel(year, month)}</h3>
+              <p className="mb-3 text-sm text-ink-soft">
+                Checked employees have this amount deducted from net pay in this run. Uncheck to skip someone for this month only —
+                nothing is deducted for them and the full amount is still owed.
+              </p>
+              <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+                {eligibleLoans.map((l) => (
+                  <li key={l.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                    <label className="flex items-center gap-3">
+                      <input type="checkbox" name={`loan_${l.id}`} defaultChecked className="size-4 rounded border-line accent-brand-600" />
+                      <span>
+                        <span className="font-medium text-ink">{l.employeeName}</span>{" "}
+                        <span className="text-ink-muted">({l.employeeCode}) — {l.type === "LOAN" ? "Loan" : "Advance"}</span>
+                      </span>
+                    </label>
+                    <span className="text-ink-soft">
+                      {inr(l.plannedAmount)} <span className="text-xs text-ink-muted">of {inr(l.outstandingBalance)} outstanding</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <SubmitButton icon="payroll">Process payroll for {monthLabel(year, month)}</SubmitButton>
         </form>
 
         {missingSalary > 0 && (
