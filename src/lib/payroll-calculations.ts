@@ -162,12 +162,16 @@ export interface TdsComputationInput {
   /** FY months not yet paid — the balance is spread over these. */
   remainingMonths: number;
   slabs: TaxSlab[];
+  /** Which regime's Section 87A rebate rules apply — the two regimes have different thresholds. */
+  taxRegime: TaxRegime;
 }
 
 export interface TdsComputationResult {
   totalDeductions: number;
   taxableIncome: number;
   taxLiability: number;
+  /** Section 87A rebate applied against taxLiability, before cess. */
+  rebate87A: number;
   cess: number;
   annualTdsLiability: number;
   balanceTds: number;
@@ -175,21 +179,46 @@ export interface TdsComputationResult {
 }
 
 /**
+ * Section 87A rebate for a resident individual, current statutory limits:
+ * - Old regime: taxable income up to Rs 5,00,000 gets tax wiped out entirely (rebate capped at
+ *   Rs 12,500). The law provides no marginal relief here — a single rupee over the limit loses the
+ *   whole rebate at once (the well-known old-regime "tax cliff" at 5L).
+ * - New regime (Section 115BAC, FY2025-26 onward): taxable income up to Rs 12,00,000 gets tax wiped
+ *   out entirely (rebate capped at Rs 60,000), and marginal relief tapers the rebate for income just
+ *   above that so a small excess over 12L can never cost more tax than the excess itself.
+ * Assumes resident status (this app doesn't track residency — non-resident employees aren't eligible
+ * for 87A and would need this overridden by a deduction line or manual adjustment).
+ */
+export function calculateSection87ARebate(taxableIncome: number, taxRegime: TaxRegime, taxLiability: number): number {
+  if (taxRegime === "OLD") {
+    const THRESHOLD = 500000;
+    const MAX_REBATE = 12500;
+    return taxableIncome <= THRESHOLD ? Math.min(MAX_REBATE, taxLiability) : 0;
+  }
+  const THRESHOLD = 1200000;
+  const MAX_REBATE = 60000;
+  if (taxableIncome <= THRESHOLD) return Math.min(MAX_REBATE, taxLiability);
+  return Math.max(0, taxLiability - (taxableIncome - THRESHOLD));
+}
+
+/**
  * The proper (Form-16-shaped) TDS computation this module exists for: gross income minus declared
- * deductions/exemptions gives taxable income; slab tax plus 4% cess gives the year's TDS liability;
- * subtracting what's already been withheld gives the balance, spread evenly (rounded UP, so the last
- * month never falls short) over the months not yet paid. A negative balance (over-withheld) deducts
- * nothing further through payroll — that surplus is reconciled at filing, not clawed back mid-year.
+ * deductions/exemptions gives taxable income; slab tax minus the Section 87A rebate (if eligible)
+ * plus 4% cess gives the year's TDS liability; subtracting what's already been withheld gives the
+ * balance, spread evenly (rounded UP, so the last month never falls short) over the months not yet
+ * paid. A negative balance (over-withheld) deducts nothing further through payroll — that surplus is
+ * reconciled at filing, not clawed back mid-year.
  */
 export function computeTdsComputation(input: TdsComputationInput): TdsComputationResult {
   const totalDeductions = round2(input.deductionLines.reduce((s, l) => s + l.amount, 0));
   const taxableIncome = Math.max(0, round2(input.grossIncome - totalDeductions));
   const taxLiability = round2(calculateSlabTax(taxableIncome, input.slabs));
-  const cess = round2(taxLiability * 0.04);
-  const annualTdsLiability = round2(taxLiability + cess);
+  const rebate87A = round2(calculateSection87ARebate(taxableIncome, input.taxRegime, taxLiability));
+  const cess = round2((taxLiability - rebate87A) * 0.04);
+  const annualTdsLiability = round2(taxLiability - rebate87A + cess);
   const balanceTds = round2(annualTdsLiability - input.tdsAlreadyDeducted);
   const monthlyTds = input.remainingMonths > 0 && balanceTds > 0 ? Math.ceil((balanceTds / input.remainingMonths) * 100) / 100 : 0;
-  return { totalDeductions, taxableIncome, taxLiability, cess, annualTdsLiability, balanceTds, monthlyTds };
+  return { totalDeductions, taxableIncome, taxLiability, rebate87A, cess, annualTdsLiability, balanceTds, monthlyTds };
 }
 
 export function calculateProfessionalTax(
@@ -272,7 +301,9 @@ export function calculatePayrollFromLines(
   const professionalTax = round2(calculateProfessionalTax(sum((l) => l.includeInPt), config.professionalTaxSlabs));
 
   const annualTaxable = sum((l) => l.taxable) * 12;
-  const tds = round2(calculateSlabTax(annualTaxable, config.incomeTaxSlabs[salary.taxRegime]) / 12);
+  const annualSlabTax = calculateSlabTax(annualTaxable, config.incomeTaxSlabs[salary.taxRegime]);
+  const rebate87A = calculateSection87ARebate(annualTaxable, salary.taxRegime, annualSlabTax);
+  const tds = round2((annualSlabTax - rebate87A) / 12);
 
   const totalDeductions = round2(employeePf + employeeEsi + professionalTax + tds);
   const netPay = round2(grossPay - totalDeductions);

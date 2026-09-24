@@ -1013,11 +1013,13 @@ model TdsComputation {
   deductionLines     Json
   totalDeductions    Decimal              @db.Decimal(14, 2)
   taxableIncome      Decimal              @db.Decimal(14, 2)
-  /// Slab tax on taxableIncome, before cess.
+  /// Slab tax on taxableIncome, before rebate and cess.
   taxLiability       Decimal              @db.Decimal(14, 2)
-  /// 4% Health & Education Cess on taxLiability.
+  /// Section 87A rebate applied against taxLiability (see src/lib/payroll-calculations.ts), before cess.
+  rebate87A          Decimal              @default(0) @db.Decimal(14, 2)
+  /// 4% Health & Education Cess on (taxLiability - rebate87A).
   cess               Decimal              @db.Decimal(14, 2)
-  /// taxLiability + cess — the year's total TDS obligation.
+  /// taxLiability - rebate87A + cess — the year's total TDS obligation.
   annualTdsLiability Decimal              @db.Decimal(14, 2)
   /// Sum of TDS already taken through payroll this FY, as of when this version was saved.
   tdsAlreadyDeducted Decimal              @db.Decimal(14, 2)

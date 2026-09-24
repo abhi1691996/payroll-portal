@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateMonthlyPayroll,
   calculateProfessionalTax,
+  calculateSection87ARebate,
   calculateSlabTax,
   computeTdsComputation,
   type StatutoryConfigInput,
@@ -38,12 +39,47 @@ const config: StatutoryConfigInput = {
   },
 };
 
+describe("calculateSection87ARebate", () => {
+  it("old regime: full rebate (tax nil) exactly at the 5,00,000 threshold", () => {
+    // Real old-regime slabs on 500,000 taxable: 0 on first 250k, 5% on next 250k = 12,500 tax —
+    // which is exactly the old regime's rebate cap, so tax is wiped out completely.
+    const tax = calculateSlabTax(500000, config.incomeTaxSlabs.OLD);
+    expect(tax).toBe(12500);
+    expect(calculateSection87ARebate(500000, "OLD", tax)).toBe(12500);
+  });
+
+  it("old regime: a single rupee over the threshold loses the whole rebate (no marginal relief)", () => {
+    const tax = calculateSlabTax(500001, config.incomeTaxSlabs.OLD);
+    expect(tax).toBeCloseTo(12500.2, 2);
+    expect(calculateSection87ARebate(500001, "OLD", tax)).toBe(0);
+  });
+
+  it("new regime: full rebate (tax nil) up to the 12,00,000 threshold", () => {
+    expect(calculateSection87ARebate(1200000, "NEW", 60000)).toBe(60000);
+    expect(calculateSection87ARebate(900000, "NEW", 30000)).toBe(30000);
+  });
+
+  it("new regime: marginal relief tapers the rebate just above the threshold so tax never exceeds the excess income", () => {
+    // 50,000 over the threshold; nominal tax 67,500 would be a worse outcome than paying tax only on
+    // the excess (50,000), so the rebate absorbs the difference instead of cutting off abruptly.
+    const rebate = calculateSection87ARebate(1250000, "NEW", 67500);
+    expect(rebate).toBe(17500); // 67,500 - (1,250,000 - 1,200,000)
+    expect(67500 - rebate).toBe(50000); // net tax equals exactly the excess over the threshold
+  });
+
+  it("new regime: marginal relief phases out once nominal tax is comfortably above the excess income", () => {
+    const rebate = calculateSection87ARebate(2000000, "NEW", 250000);
+    expect(rebate).toBe(0);
+  });
+});
+
 describe("computeTdsComputation", () => {
   const slabs = config.incomeTaxSlabs.NEW;
 
-  it("gross minus deductions gives taxable income, then slab tax plus 4% cess gives the annual liability", () => {
+  it("gross minus deductions gives taxable income, then slab tax minus rebate plus 4% cess gives the annual liability", () => {
     // 900,000 - 75,000 standard deduction = 825,000 taxable.
     // 0 on the first 300k, 5% on the next 300k (=15,000), 10% on the remaining 225k (=22,500) = 37,500 tax.
+    // Old regime here (threshold 5L) so 87A doesn't apply at 825k taxable — rebate stays 0.
     // +4% cess (1,500) = 39,000 annual liability. Nothing deducted yet, 12 months left: 39,000/12 = 3,250/mo exactly.
     const r = computeTdsComputation({
       grossIncome: 900000,
@@ -51,10 +87,12 @@ describe("computeTdsComputation", () => {
       tdsAlreadyDeducted: 0,
       remainingMonths: 12,
       slabs,
+      taxRegime: "OLD",
     });
     expect(r.totalDeductions).toBe(75000);
     expect(r.taxableIncome).toBe(825000);
     expect(r.taxLiability).toBeCloseTo(37500, 2);
+    expect(r.rebate87A).toBe(0);
     expect(r.cess).toBeCloseTo(1500, 2);
     expect(r.annualTdsLiability).toBeCloseTo(39000, 2);
     expect(r.balanceTds).toBeCloseTo(39000, 2);
@@ -63,7 +101,8 @@ describe("computeTdsComputation", () => {
 
   it("balance TDS is annual liability minus what's already been deducted, spread over the months left — same shape as the request's worked example", () => {
     // A flat 10% slab keeps the tax math trivially checkable: 1,000,000 taxable x 10% = 100,000 tax,
-    // +4% cess (4,000) = 104,000 annual liability. 24,000 already deducted -> 80,000 balance, over 8 months.
+    // +4% cess (4,000) = 104,000 annual liability. Old regime (threshold 5L) so 87A doesn't apply at
+    // this income level. 24,000 already deducted -> 80,000 balance, over 8 months.
     const flat = [{ upTo: null, rate: 0.1 }];
     const r = computeTdsComputation({
       grossIncome: 1050000,
@@ -71,9 +110,11 @@ describe("computeTdsComputation", () => {
       tdsAlreadyDeducted: 24000,
       remainingMonths: 8,
       slabs: flat,
+      taxRegime: "OLD",
     });
     expect(r.taxableIncome).toBe(1000000);
     expect(r.taxLiability).toBe(100000);
+    expect(r.rebate87A).toBe(0);
     expect(r.cess).toBe(4000);
     expect(r.annualTdsLiability).toBe(104000);
     expect(r.balanceTds).toBe(80000);
@@ -87,27 +128,48 @@ describe("computeTdsComputation", () => {
       tdsAlreadyDeducted: 24000,
       remainingMonths: 8,
       slabs: flat,
+      taxRegime: "OLD",
     });
     expect(revised.annualTdsLiability).toBe(135200); // 1,300,000 x 10% x 1.04
     expect(revised.balanceTds).toBe(111200); // 135,200 - 24,000
   });
 
+  it("new regime: income low enough to qualify for the full Section 87A rebate pays no TDS at all", () => {
+    const flat = [{ upTo: null, rate: 0.1 }];
+    // 600,000 taxable x 10% = 60,000 nominal tax — exactly the new regime's rebate cap — while comfortably
+    // under the 12L threshold, so the whole liability is wiped out.
+    const r = computeTdsComputation({
+      grossIncome: 600000,
+      deductionLines: [],
+      tdsAlreadyDeducted: 0,
+      remainingMonths: 12,
+      slabs: flat,
+      taxRegime: "NEW",
+    });
+    expect(r.taxLiability).toBe(60000);
+    expect(r.rebate87A).toBe(60000);
+    expect(r.cess).toBe(0);
+    expect(r.annualTdsLiability).toBe(0);
+    expect(r.monthlyTds).toBe(0);
+  });
+
   it("rounds the monthly figure UP so remainingMonths x monthlyTds is never short of the balance", () => {
     // 1,000 over 3 months = 333.33/mo, which x3 falls a paisa short — must round up to 333.34.
-    const r = computeTdsComputation({ grossIncome: 0, deductionLines: [], tdsAlreadyDeducted: -1000, remainingMonths: 3, slabs: [{ upTo: null, rate: 0 }] });
+    const r = computeTdsComputation({ grossIncome: 0, deductionLines: [], tdsAlreadyDeducted: -1000, remainingMonths: 3, slabs: [{ upTo: null, rate: 0 }], taxRegime: "NEW" });
     expect(r.balanceTds).toBe(1000);
     expect(r.monthlyTds).toBe(333.34);
     expect(r.monthlyTds * 3).toBeGreaterThanOrEqual(1000);
   });
 
   it("deducts nothing further once TDS already taken exceeds the recalculated liability", () => {
-    const r = computeTdsComputation({ grossIncome: 500000, deductionLines: [], tdsAlreadyDeducted: 999999, remainingMonths: 6, slabs });
+    const r = computeTdsComputation({ grossIncome: 500000, deductionLines: [], tdsAlreadyDeducted: 999999, remainingMonths: 6, slabs, taxRegime: "NEW" });
     expect(r.balanceTds).toBeLessThan(0);
     expect(r.monthlyTds).toBe(0);
   });
 
   it("deducts nothing when there are no FY months left to spread the balance over", () => {
-    const r = computeTdsComputation({ grossIncome: 1000000, deductionLines: [], tdsAlreadyDeducted: 0, remainingMonths: 0, slabs });
+    // Old regime so the 87A rebate doesn't zero out the liability at this income and mask the point being tested.
+    const r = computeTdsComputation({ grossIncome: 1000000, deductionLines: [], tdsAlreadyDeducted: 0, remainingMonths: 0, slabs, taxRegime: "OLD" });
     expect(r.balanceTds).toBeGreaterThan(0);
     expect(r.monthlyTds).toBe(0);
   });
@@ -182,11 +244,12 @@ describe("calculateMonthlyPayroll", () => {
     expect(result.employerContributions.esi).toBe(0);
     // Professional tax top slab for gross > 25,000
     expect(result.employeeDeductions.professionalTax).toBe(200);
-    // Annualized gross 480,000 -> 0 on first 300k, 5% on remaining 180k = 9,000/yr -> 750/month
-    expect(result.employeeDeductions.tds).toBeCloseTo(750, 2);
+    // Annualized gross 480,000 -> 0 on first 300k, 5% on remaining 180k = 9,000/yr nominal tax, but
+    // well under the new regime's Section 87A threshold (12L) so the rebate wipes it out entirely.
+    expect(result.employeeDeductions.tds).toBe(0);
 
     const expectedTotalDeductions =
-      1800 + 0 + 200 + 750;
+      1800 + 0 + 200 + 0;
     expect(result.totalDeductions).toBeCloseTo(expectedTotalDeductions, 2);
     expect(result.netPay).toBeCloseTo(40000 - expectedTotalDeductions, 2);
   });

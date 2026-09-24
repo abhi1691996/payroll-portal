@@ -78,6 +78,7 @@ export interface TdsPreview {
   totalDeductions: number;
   taxableIncome: number;
   taxLiability: number;
+  rebate87A: number;
   cess: number;
   annualTdsLiability: number;
   balanceTds: number;
@@ -93,7 +94,7 @@ export async function previewTdsComputation(
   const deductionLines = input.deductionLines ?? defaultDeductionLines(input.taxRegime);
   const { amount: tdsAlreadyDeducted, remainingMonths } = await tdsDeductedSoFar(db, input.employeeId, input.financialYear);
   const config = await getStatutoryConfigFor(db, new Date());
-  const result = computeTdsComputation({ grossIncome, deductionLines, tdsAlreadyDeducted, remainingMonths, slabs: config.incomeTaxSlabs[input.taxRegime] });
+  const result = computeTdsComputation({ grossIncome, deductionLines, tdsAlreadyDeducted, remainingMonths, slabs: config.incomeTaxSlabs[input.taxRegime], taxRegime: input.taxRegime });
   return { grossIncome, deductionLines, tdsAlreadyDeducted, remainingMonths, ...result };
 }
 
@@ -129,7 +130,7 @@ export async function createTdsComputation(db: TenantDb, ctx: TenantCtx, input: 
   const config = await getStatutoryConfigFor(db, new Date());
   const result = computeTdsComputation({
     grossIncome: input.grossIncome, deductionLines: input.deductionLines, tdsAlreadyDeducted, remainingMonths,
-    slabs: config.incomeTaxSlabs[input.taxRegime],
+    slabs: config.incomeTaxSlabs[input.taxRegime], taxRegime: input.taxRegime,
   });
 
   const created = await db.tdsComputation.create({
@@ -137,7 +138,8 @@ export async function createTdsComputation(db: TenantDb, ctx: TenantCtx, input: 
       companyId: ctx.companyId, employeeId: input.employeeId, financialYear: input.financialYear, version, status: "DRAFT",
       taxRegime: input.taxRegime, revisionReason: input.revisionReason || null,
       grossIncome: input.grossIncome, deductionLines: input.deductionLines,
-      totalDeductions: result.totalDeductions, taxableIncome: result.taxableIncome, taxLiability: result.taxLiability, cess: result.cess,
+      totalDeductions: result.totalDeductions, taxableIncome: result.taxableIncome, taxLiability: result.taxLiability,
+      rebate87A: result.rebate87A, cess: result.cess,
       annualTdsLiability: result.annualTdsLiability, tdsAlreadyDeducted, balanceTds: result.balanceTds,
       remainingMonths, monthlyTds: result.monthlyTds, requestedByUserId: ctx.userId,
     },

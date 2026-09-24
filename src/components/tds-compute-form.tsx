@@ -41,8 +41,8 @@ export function TdsComputeForm({
   const [reason, setReason] = useState("");
 
   const result = useMemo(
-    () => computeTdsComputation({ grossIncome, deductionLines: lines, tdsAlreadyDeducted, remainingMonths, slabs }),
-    [grossIncome, lines, tdsAlreadyDeducted, remainingMonths, slabs]
+    () => computeTdsComputation({ grossIncome, deductionLines: lines, tdsAlreadyDeducted, remainingMonths, slabs, taxRegime }),
+    [grossIncome, lines, tdsAlreadyDeducted, remainingMonths, slabs, taxRegime]
   );
 
   const update = (i: number, patch: Partial<TdsDeductionLine>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -118,12 +118,16 @@ export function TdsComputeForm({
       <div className="grid gap-3 rounded-xl bg-canvas p-4 text-sm sm:grid-cols-3">
         <div><dt className="text-ink-muted">Taxable income</dt><dd className="font-semibold text-ink">{inr(result.taxableIncome)}</dd></div>
         <div><dt className="text-ink-muted">Tax liability</dt><dd className="font-semibold text-ink">{inr(result.taxLiability)}</dd></div>
+        <div><dt className="text-ink-muted">Rebate u/s 87A</dt><dd className="font-semibold text-ink">{result.rebate87A > 0 ? `- ${inr(result.rebate87A)}` : inr(0)}</dd></div>
         <div><dt className="text-ink-muted">Cess (4%)</dt><dd className="font-semibold text-ink">{inr(result.cess)}</dd></div>
         <div><dt className="text-ink-muted">Annual TDS liability</dt><dd className="font-semibold text-ink">{inr(result.annualTdsLiability)}</dd></div>
         <div><dt className="text-ink-muted">Balance TDS</dt><dd className="font-semibold text-ink">{inr(result.balanceTds)}</dd></div>
         <div><dt className="text-ink-muted">Monthly TDS (next {remainingMonths} month{remainingMonths === 1 ? "" : "s"})</dt><dd className="text-lg font-semibold text-brand-700">{inr(result.monthlyTds)}</dd></div>
       </div>
 
+      {result.rebate87A > 0 && result.taxLiability - result.rebate87A <= 0 && (
+        <Alert tone="info">Taxable income qualifies for the full Section 87A rebate — tax liability is nil.</Alert>
+      )}
       {result.balanceTds < 0 && (
         <Alert tone="info">TDS already withheld this year exceeds the recalculated annual liability by {inr(-result.balanceTds)}. Nothing further is deducted through payroll — the surplus is reconciled at filing.</Alert>
       )}
