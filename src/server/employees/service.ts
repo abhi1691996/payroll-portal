@@ -21,6 +21,12 @@ export interface NewEmployeeInput {
   state: string;
   taxRegime?: "OLD" | "NEW";
   category?: "WHITE_COLLAR" | "BLUE_COLLAR" | "OTHER";
+  dateOfBirth?: Date | null;
+  gender?: "MALE" | "FEMALE" | "OTHER" | null;
+  maritalStatus?: "SINGLE" | "MARRIED" | "OTHER" | null;
+  bloodGroup?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   passwordHash: string;
 }
 
@@ -63,6 +69,12 @@ export async function createEmployeeWithLogin(
           dateOfJoining: input.dateOfJoining,
           state: input.state,
           taxRegime: input.taxRegime ?? "NEW",
+          dateOfBirth: input.dateOfBirth || null,
+          gender: input.gender || null,
+          maritalStatus: input.maritalStatus || null,
+          bloodGroup: input.bloodGroup || null,
+          emergencyContactName: input.emergencyContactName || null,
+          emergencyContactPhone: input.emergencyContactPhone || null,
         },
       },
     },

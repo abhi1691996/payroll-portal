@@ -38,6 +38,7 @@ export const PERMISSIONS = {
 
   // Reports & compliance
   "report.read": { module: "Reports", description: "Download statutory and payroll reports" },
+  "dashboard.read": { module: "Reports", description: "View the daily management dashboard" },
 
   // Administration
   "settings.read": { module: "Settings", description: "View company settings" },

@@ -13,6 +13,18 @@ export const EMPLOYEE_CATEGORIES = [
   { value: "OTHER", label: "Other" },
 ] as const;
 
+export const GENDERS = [
+  { value: "MALE", label: "Male" },
+  { value: "FEMALE", label: "Female" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
+export const MARITAL_STATUSES = [
+  { value: "SINGLE", label: "Single" },
+  { value: "MARRIED", label: "Married" },
+  { value: "OTHER", label: "Other" },
+] as const;
+
 /** Only these registrations have a CIN (Companies Act). LLPs have an LLPIN; firms and proprietors have neither. */
 export const COMPANY_TYPES_WITH_CIN = ["Private Limited", "Public Limited"];
 

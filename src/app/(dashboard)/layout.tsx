@@ -39,6 +39,7 @@ const SECTIONS: { title: string; items: NavEntry[] }[] = [
   {
     title: "Admin",
     items: [
+      { href: "/management-dashboard", label: "Management Dashboard", icon: "dashboard", permission: "dashboard.read", minScope: "COMPANY" },
       { href: "/settings", label: "Settings", icon: "settings", permission: "settings.read", minScope: "COMPANY" },
     ],
   },

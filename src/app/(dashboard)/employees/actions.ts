@@ -36,6 +36,12 @@ export async function createEmployee(formData: FormData) {
     state: formData.get("state"),
     taxRegime: formData.get("taxRegime") || "NEW",
     category: formData.get("category") || "WHITE_COLLAR",
+    dateOfBirth: formData.get("dateOfBirth") ?? "",
+    gender: formData.get("gender") ?? "",
+    maritalStatus: formData.get("maritalStatus") ?? "",
+    bloodGroup: formData.get("bloodGroup") ?? "",
+    emergencyContactName: formData.get("emergencyContactName") ?? "",
+    emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
   });
 
   if (!parsed.success) {
@@ -67,6 +73,9 @@ export async function createEmployee(formData: FormData) {
       ...data,
       employeeCode,
       dateOfJoining: new Date(data.dateOfJoining),
+      dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : null,
+      gender: data.gender || null,
+      maritalStatus: data.maritalStatus || null,
       passwordHash,
     });
   });
@@ -164,6 +173,12 @@ export async function updateEmployeeProfile(employeeId: string, formData: FormDa
     state: formData.get("state"),
     taxRegime: formData.get("taxRegime") || "NEW",
     category: formData.get("category") || "WHITE_COLLAR",
+    dateOfBirth: formData.get("dateOfBirth") ?? "",
+    gender: formData.get("gender") ?? "",
+    maritalStatus: formData.get("maritalStatus") ?? "",
+    bloodGroup: formData.get("bloodGroup") ?? "",
+    emergencyContactName: formData.get("emergencyContactName") ?? "",
+    emergencyContactPhone: formData.get("emergencyContactPhone") ?? "",
   });
   if (!parsed.success) throw new Error(parsed.error.issues.map((i) => i.message).join(", "));
   const d = parsed.data;
@@ -188,6 +203,12 @@ export async function updateEmployeeProfile(employeeId: string, formData: FormDa
         designation: d.designation || null,
         dateOfJoining: new Date(d.dateOfJoining),
         state: d.state,
+        dateOfBirth: d.dateOfBirth ? new Date(d.dateOfBirth) : null,
+        gender: d.gender || null,
+        maritalStatus: d.maritalStatus || null,
+        bloodGroup: d.bloodGroup || null,
+        emergencyContactName: d.emergencyContactName || null,
+        emergencyContactPhone: d.emergencyContactPhone || null,
       },
     });
     // Keep the login's display name in step, if this employee has a portal login.

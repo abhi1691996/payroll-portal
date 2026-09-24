@@ -198,6 +198,36 @@ describe("employee category and optional last name", () => {
     );
     expect((await owner.employee.findUniqueOrThrow({ where: { id: employeeId } })).category).toBe("BLUE_COLLAR");
   });
+
+  it("persists the new personal-detail fields when given, and leaves them null when not", async () => {
+    const { employeeId } = await withTenant(A.companyId, (db) =>
+      createEmployeeWithLogin(db, A.admin, {
+        employeeCode: "PD1", firstName: "Anita", email: `anita-${Date.now()}@loans-alpha.test`,
+        dateOfJoining: new Date("2024-01-01"), state: "Karnataka", passwordHash: "x",
+        dateOfBirth: new Date("1990-03-20"), gender: "FEMALE", maritalStatus: "MARRIED",
+        bloodGroup: "B+", emergencyContactName: "Vikram", emergencyContactPhone: "9876500000",
+      })
+    );
+    const withDetails = await owner.employee.findUniqueOrThrow({ where: { id: employeeId } });
+    expect(withDetails.dateOfBirth?.toISOString().slice(0, 10)).toBe("1990-03-20");
+    expect(withDetails.gender).toBe("FEMALE");
+    expect(withDetails.maritalStatus).toBe("MARRIED");
+    expect(withDetails.bloodGroup).toBe("B+");
+    expect(withDetails.emergencyContactName).toBe("Vikram");
+    expect(withDetails.emergencyContactPhone).toBe("9876500000");
+
+    const { employeeId: bareId } = await withTenant(A.companyId, (db) =>
+      createEmployeeWithLogin(db, A.admin, {
+        employeeCode: "PD2", firstName: "Bare", email: `bare-${Date.now()}@loans-alpha.test`,
+        dateOfJoining: new Date("2024-01-01"), state: "Karnataka", passwordHash: "x",
+      })
+    );
+    const bare = await owner.employee.findUniqueOrThrow({ where: { id: bareId } });
+    expect(bare.dateOfBirth).toBeNull();
+    expect(bare.gender).toBeNull();
+    expect(bare.maritalStatus).toBeNull();
+    expect(bare.bloodGroup).toBeNull();
+  });
 });
 
 describe("tenant isolation", () => {

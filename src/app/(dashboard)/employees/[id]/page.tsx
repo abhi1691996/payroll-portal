@@ -8,7 +8,7 @@ import { ensureLifecycleStatuses, SEPARATED_STATUSES } from "@/server/employees/
 import { loadTemplates, readLines, toTemplateLines } from "@/server/salary/service";
 import { formatMinutes } from "@/lib/time";
 import { fmtDate, inr } from "@/lib/format";
-import { EMPLOYEE_CATEGORIES } from "@/lib/india";
+import { EMPLOYEE_CATEGORIES, GENDERS, MARITAL_STATUSES } from "@/lib/india";
 import { SalaryAssignForm } from "@/components/salary-assign-form";
 import { decisionRoute } from "@/server/approvals/service";
 import {
@@ -168,6 +168,11 @@ export default async function EmployeeDetailPage({
           <Detail label="Category" value={EMPLOYEE_CATEGORIES.find((c) => c.value === employee.category)?.label} />
           <Detail label="State" value={employee.state} />
           <Detail label="Joined" value={fmtDate(employee.dateOfJoining)} />
+          <Detail label="Date of birth" value={employee.dateOfBirth ? fmtDate(employee.dateOfBirth) : null} />
+          <Detail label="Gender" value={GENDERS.find((g) => g.value === employee.gender)?.label} />
+          <Detail label="Marital status" value={MARITAL_STATUSES.find((m) => m.value === employee.maritalStatus)?.label} />
+          <Detail label="Blood group" value={employee.bloodGroup} />
+          <Detail label="Emergency contact" value={employee.emergencyContactName ? `${employee.emergencyContactName}${employee.emergencyContactPhone ? ` (${employee.emergencyContactPhone})` : ""}` : null} />
           <Detail label="Income-tax regime" value={employee.taxRegime === "OLD" ? "Old regime" : "New regime"} />
           <Detail label="Reporting manager" value={manager ? `${manager.firstName} ${manager.lastName}` : null} />
           <Detail label="Shift" value={shift ? `${shift.name} (${shift.isFlexible ? "flexible" : `${formatMinutes(shift.startMinutes)} – ${formatMinutes(shift.endMinutes)}`})` : null} />
@@ -183,7 +188,7 @@ export default async function EmployeeDetailPage({
         <Card>
           <CardHeader title="Edit profile" description="Name, category, contact and statutory details. The login email and employee code can't be changed here." />
           <form
-            key={`${employee.firstName}${employee.lastName}${employee.category}${employee.department}${employee.designation}${employee.dateOfJoining.toISOString()}`}
+            key={`${employee.firstName}${employee.lastName}${employee.category}${employee.department}${employee.designation}${employee.dateOfJoining.toISOString()}${employee.dateOfBirth?.toISOString()}${employee.gender}${employee.maritalStatus}`}
             action={updateEmployeeProfile.bind(null, employee.id)}
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
@@ -206,6 +211,26 @@ export default async function EmployeeDetailPage({
             <TextInput label="Aadhaar (last 4 digits)" name="aadhaarLast4" defaultValue={employee.aadhaarLast4 ?? ""} />
             <TextInput label="Bank account number" name="bankAccountNumber" defaultValue={employee.bankAccountNumber ?? ""} />
             <TextInput label="Bank IFSC" name="bankIfsc" defaultValue={employee.bankIfsc ?? ""} placeholder="ABCD0123456" />
+            <TextInput label="Date of birth" name="dateOfBirth" type="date" defaultValue={employee.dateOfBirth ? employee.dateOfBirth.toISOString().slice(0, 10) : ""} />
+            <Field label="Gender">
+              <select name="gender" defaultValue={employee.gender ?? ""} className={inputClass}>
+                <option value="">Not specified</option>
+                {GENDERS.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Marital status">
+              <select name="maritalStatus" defaultValue={employee.maritalStatus ?? ""} className={inputClass}>
+                <option value="">Not specified</option>
+                {MARITAL_STATUSES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </Field>
+            <TextInput label="Blood group" name="bloodGroup" defaultValue={employee.bloodGroup ?? ""} placeholder="e.g. O+" />
+            <TextInput label="Emergency contact name" name="emergencyContactName" defaultValue={employee.emergencyContactName ?? ""} />
+            <TextInput label="Emergency contact phone" name="emergencyContactPhone" defaultValue={employee.emergencyContactPhone ?? ""} />
             <div className="sm:col-span-2 lg:col-span-3">
               <SubmitButton icon="check">Save profile</SubmitButton>
             </div>

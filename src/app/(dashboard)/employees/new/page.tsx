@@ -1,6 +1,6 @@
 import { Alert, Card, CardHeader, Field, PageHeader, SubmitButton, TextInput, LinkButton, inputClass } from "@/components/ui";
 import { requirePermission } from "@/server/rbac/guard";
-import { EMPLOYEE_CATEGORIES } from "@/lib/india";
+import { EMPLOYEE_CATEGORIES, GENDERS, MARITAL_STATUSES } from "@/lib/india";
 import { createEmployee } from "../actions";
 
 export default async function NewEmployeePage() {
@@ -42,6 +42,32 @@ export default async function NewEmployeePage() {
               placeholder="e.g. Karnataka"
               hint="Used to pick Professional Tax slabs."
             />
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader title="Personal details" description="Optional, but useful for HR records, benefits and workplace safety." />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextInput label="Date of birth" name="dateOfBirth" type="date" />
+            <Field label="Gender">
+              <select name="gender" defaultValue="" className={inputClass}>
+                <option value="">Not specified</option>
+                {GENDERS.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Marital status">
+              <select name="maritalStatus" defaultValue="" className={inputClass}>
+                <option value="">Not specified</option>
+                {MARITAL_STATUSES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </Field>
+            <TextInput label="Blood group" name="bloodGroup" placeholder="e.g. O+" />
+            <TextInput label="Emergency contact name" name="emergencyContactName" />
+            <TextInput label="Emergency contact phone" name="emergencyContactPhone" />
           </div>
         </Card>
 

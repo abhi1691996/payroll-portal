@@ -29,6 +29,12 @@ export const employeeSchema = z.object({
   state: z.string().min(1, "State is required (used for Professional Tax slabs)"),
   taxRegime: z.enum(["OLD", "NEW"]).default("NEW"),
   category: z.enum(["WHITE_COLLAR", "BLUE_COLLAR", "OTHER"]).default("WHITE_COLLAR"),
+  dateOfBirth: z.string().optional().or(z.literal("")),
+  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional().or(z.literal("")),
+  maritalStatus: z.enum(["SINGLE", "MARRIED", "OTHER"]).optional().or(z.literal("")),
+  bloodGroup: z.string().optional().or(z.literal("")),
+  emergencyContactName: z.string().optional().or(z.literal("")),
+  emergencyContactPhone: z.string().optional().or(z.literal("")),
 });
 
 export type EmployeeFormValues = z.infer<typeof employeeSchema>;

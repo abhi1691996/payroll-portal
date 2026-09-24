@@ -2,7 +2,7 @@ import { requirePermission } from "@/server/rbac/guard";
 import { withTenant } from "@/server/tenancy/db";
 import { monthLabel } from "@/lib/dates";
 import { Icon } from "@/components/icons";
-import { Alert, EmptyRow, PageHeader, StatusBadge, Table, TableCard, Td, Th, Tr, buttonClass } from "@/components/ui";
+import { Alert, Card, CardHeader, EmptyRow, LinkButton, PageHeader, StatusBadge, Table, TableCard, Td, Th, Tr, buttonClass } from "@/components/ui";
 
 const REPORT_TYPES = [
   { key: "pf", label: "PF" },
@@ -33,6 +33,16 @@ export default async function ReportsPage() {
           department. Nothing here is submitted anywhere automatically.
         </Alert>
       </div>
+
+      <Card className="mb-8">
+        <CardHeader
+          title="Employee master sheet"
+          description="Every employee (any status) with their personal details and current salary, in one Excel workbook — a second sheet breaks each salary down into its components."
+        />
+        <LinkButton href="/reports/mastersheet" icon="download" download>
+          Download master sheet (.xlsx)
+        </LinkButton>
+      </Card>
 
       <TableCard>
         <Table>

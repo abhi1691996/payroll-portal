@@ -92,6 +92,18 @@ enum EmployeeCategory {
   OTHER
 }
 
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  OTHER
+}
+
 enum LeaveRequestStatus {
   PENDING
   APPROVED
@@ -409,6 +421,12 @@ model Employee {
   /// Optional — not every employee goes by a surname.
   lastName          String   @default("")
   category          EmployeeCategory @default(WHITE_COLLAR)
+  dateOfBirth       DateTime?        @db.Date
+  gender            Gender?
+  maritalStatus     MaritalStatus?
+  bloodGroup        String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
   personalEmail     String?
   phone             String?
   panNumber         String?
