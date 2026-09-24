@@ -439,6 +439,7 @@ model Employee {
   suspensions       EmployeeSuspension[]
   separations       EmployeeSeparation[]
   loans             EmployeeLoan[]
+  tdsComputations   TdsComputation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -975,4 +976,66 @@ model Payslip {
 
   @@unique([payrollRunId, employeeId])
   @@index([companyId])
+}
+
+/* ------------------------------- TDS computation ------------------------------- */
+
+enum TdsComputationStatus {
+  /// Computed and saved, but not yet in effect — payroll ignores it.
+  DRAFT
+  /// In effect: the latest APPROVED row for an (employee, financial year) is what payroll uses.
+  APPROVED
+  /// Was APPROVED, replaced by a later approved version. Kept for the audit trail.
+  SUPERSEDED
+  /// A DRAFT that was discarded instead of approved. Kept for the audit trail.
+  WITHDRAWN
+}
+
+/// A version of one employee's TDS computation for one financial year: projected annual income, the
+/// deductions/exemptions used, the resulting annual tax and TDS liability, TDS already deducted through
+/// payroll so far (snapshotted at save time), the balance, and how that balance is spread over the
+/// remaining months. Revising it (salary change, new declarations, ...) creates a new version rather than
+/// editing this one — `version` numbers a continuous V1, V2, V3... history per (employee, financial year).
+model TdsComputation {
+  id                 String               @id @default(cuid())
+  companyId          String
+  employeeId         String
+  employee           Employee             @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  /// The FY's starting calendar year, e.g. 2026 = FY 2026-04-01..2027-03-31 (always Apr-Mar; see src/lib/fy.ts).
+  financialYear      Int
+  version            Int
+  status             TdsComputationStatus @default(DRAFT)
+  taxRegime          TaxRegime
+  /// Why this version exists, e.g. "Salary revision in October". Required for V2 and later.
+  revisionReason     String?
+  grossIncome        Decimal              @db.Decimal(14, 2)
+  /// [{ code, name, amount }] — standard deduction, 80C, 80D, HRA exemption, etc.
+  deductionLines     Json
+  totalDeductions    Decimal              @db.Decimal(14, 2)
+  taxableIncome      Decimal              @db.Decimal(14, 2)
+  /// Slab tax on taxableIncome, before cess.
+  taxLiability       Decimal              @db.Decimal(14, 2)
+  /// 4% Health & Education Cess on taxLiability.
+  cess               Decimal              @db.Decimal(14, 2)
+  /// taxLiability + cess — the year's total TDS obligation.
+  annualTdsLiability Decimal              @db.Decimal(14, 2)
+  /// Sum of TDS already taken through payroll this FY, as of when this version was saved.
+  tdsAlreadyDeducted Decimal              @db.Decimal(14, 2)
+  /// annualTdsLiability - tdsAlreadyDeducted.
+  balanceTds         Decimal              @db.Decimal(14, 2)
+  /// FY months not yet paid as of when this version was saved; balanceTds is spread over these.
+  remainingMonths    Int
+  /// balanceTds / remainingMonths, rounded up to the paisa so remainingMonths x monthlyTds is never
+  /// short of balanceTds — this is the figure payroll deducts each month once this version is approved.
+  monthlyTds         Decimal              @db.Decimal(14, 2)
+  requestedByUserId  String?
+  approvedByUserId   String?
+  approvedAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, financialYear])
+  @@index([companyId, employeeId, financialYear, status])
 }

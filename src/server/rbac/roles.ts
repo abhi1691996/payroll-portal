@@ -59,6 +59,7 @@ export const SYSTEM_ROLES: RoleTemplate[] = [
       "report.read": "COMPANY",
       "settings.read": "COMPANY",
       "loan.manage": "COMPANY",
+      "tds.manage": "COMPANY",
     },
   },
   {

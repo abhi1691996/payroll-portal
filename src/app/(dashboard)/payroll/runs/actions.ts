@@ -8,6 +8,8 @@ import { audit } from "@/server/audit/audit";
 import { loadHolidays, loadRules } from "@/server/rules/load";
 import { ensureLifecycleStatuses } from "@/server/employees/lifecycle";
 import { applyLoanDeductions } from "@/server/loans/service";
+import { latestApprovedTds } from "@/server/tds/service";
+import { financialYearOf } from "@/lib/fy";
 import { approvedLeaveMap } from "@/server/leave/days";
 import { readLines } from "@/server/salary/service";
 import { classifyDay, eachDate, isoDate } from "@/lib/attendance/calendar";
@@ -159,6 +161,19 @@ export async function processPayrollRun(formData: FormData) {
           lateMarks: lop.lateMarks, lateHalfDays: lop.lateHalfDays, overtimeMinutes,
           suspendedDays: lop.excludedDays, separatedDays: lop.separatedDays,
         };
+
+        // TDS: use the employee's latest APPROVED computation for this financial year if one exists —
+        // that's the whole point of the module (an admin-reviewed, Form-16-shaped figure instead of a
+        // rough per-month slab estimate). Falls back to the slab estimate already in `breakdown` otherwise.
+        const tdsComputation = await latestApprovedTds(db, employee.id, financialYearOf(year, month));
+        if (tdsComputation) {
+          const newTds = Number(tdsComputation.monthlyTds);
+          const diff = round2(newTds - breakdown.employeeDeductions.tds);
+          breakdown.employeeDeductions.tds = newTds;
+          breakdown.totalDeductions = round2(breakdown.totalDeductions + diff);
+          breakdown.netPay = round2(breakdown.netPay - diff);
+          breakdown.tdsSource = { computationId: tdsComputation.id, version: tdsComputation.version, financialYear: tdsComputation.financialYear };
+        }
 
         // Loan/advance repayments: post-tax, so they reduce net pay without touching the statutory figures.
         const employeeLoanDeductions = loanDeductions.get(employee.id);

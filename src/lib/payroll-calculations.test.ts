@@ -3,6 +3,7 @@ import {
   calculateMonthlyPayroll,
   calculateProfessionalTax,
   calculateSlabTax,
+  computeTdsComputation,
   type StatutoryConfigInput,
 } from "./payroll-calculations";
 
@@ -36,6 +37,81 @@ const config: StatutoryConfigInput = {
     ],
   },
 };
+
+describe("computeTdsComputation", () => {
+  const slabs = config.incomeTaxSlabs.NEW;
+
+  it("gross minus deductions gives taxable income, then slab tax plus 4% cess gives the annual liability", () => {
+    // 900,000 - 75,000 standard deduction = 825,000 taxable.
+    // 0 on the first 300k, 5% on the next 300k (=15,000), 10% on the remaining 225k (=22,500) = 37,500 tax.
+    // +4% cess (1,500) = 39,000 annual liability. Nothing deducted yet, 12 months left: 39,000/12 = 3,250/mo exactly.
+    const r = computeTdsComputation({
+      grossIncome: 900000,
+      deductionLines: [{ code: "STD_DED", name: "Standard Deduction", amount: 75000 }],
+      tdsAlreadyDeducted: 0,
+      remainingMonths: 12,
+      slabs,
+    });
+    expect(r.totalDeductions).toBe(75000);
+    expect(r.taxableIncome).toBe(825000);
+    expect(r.taxLiability).toBeCloseTo(37500, 2);
+    expect(r.cess).toBeCloseTo(1500, 2);
+    expect(r.annualTdsLiability).toBeCloseTo(39000, 2);
+    expect(r.balanceTds).toBeCloseTo(39000, 2);
+    expect(r.monthlyTds).toBe(3250);
+  });
+
+  it("balance TDS is annual liability minus what's already been deducted, spread over the months left — same shape as the request's worked example", () => {
+    // A flat 10% slab keeps the tax math trivially checkable: 1,000,000 taxable x 10% = 100,000 tax,
+    // +4% cess (4,000) = 104,000 annual liability. 24,000 already deducted -> 80,000 balance, over 8 months.
+    const flat = [{ upTo: null, rate: 0.1 }];
+    const r = computeTdsComputation({
+      grossIncome: 1050000,
+      deductionLines: [{ code: "STD_DED", name: "Standard Deduction", amount: 50000 }],
+      tdsAlreadyDeducted: 24000,
+      remainingMonths: 8,
+      slabs: flat,
+    });
+    expect(r.taxableIncome).toBe(1000000);
+    expect(r.taxLiability).toBe(100000);
+    expect(r.cess).toBe(4000);
+    expect(r.annualTdsLiability).toBe(104000);
+    expect(r.balanceTds).toBe(80000);
+    expect(r.monthlyTds).toBe(10000);
+
+    // A revision (higher gross -> higher liability) keeps the same already-deducted figure and only the
+    // balance changes — exactly the request's "revised annual - actual already deducted = revised remaining".
+    const revised = computeTdsComputation({
+      grossIncome: 1350000,
+      deductionLines: [{ code: "STD_DED", name: "Standard Deduction", amount: 50000 }],
+      tdsAlreadyDeducted: 24000,
+      remainingMonths: 8,
+      slabs: flat,
+    });
+    expect(revised.annualTdsLiability).toBe(135200); // 1,300,000 x 10% x 1.04
+    expect(revised.balanceTds).toBe(111200); // 135,200 - 24,000
+  });
+
+  it("rounds the monthly figure UP so remainingMonths x monthlyTds is never short of the balance", () => {
+    // 1,000 over 3 months = 333.33/mo, which x3 falls a paisa short — must round up to 333.34.
+    const r = computeTdsComputation({ grossIncome: 0, deductionLines: [], tdsAlreadyDeducted: -1000, remainingMonths: 3, slabs: [{ upTo: null, rate: 0 }] });
+    expect(r.balanceTds).toBe(1000);
+    expect(r.monthlyTds).toBe(333.34);
+    expect(r.monthlyTds * 3).toBeGreaterThanOrEqual(1000);
+  });
+
+  it("deducts nothing further once TDS already taken exceeds the recalculated liability", () => {
+    const r = computeTdsComputation({ grossIncome: 500000, deductionLines: [], tdsAlreadyDeducted: 999999, remainingMonths: 6, slabs });
+    expect(r.balanceTds).toBeLessThan(0);
+    expect(r.monthlyTds).toBe(0);
+  });
+
+  it("deducts nothing when there are no FY months left to spread the balance over", () => {
+    const r = computeTdsComputation({ grossIncome: 1000000, deductionLines: [], tdsAlreadyDeducted: 0, remainingMonths: 0, slabs });
+    expect(r.balanceTds).toBeGreaterThan(0);
+    expect(r.monthlyTds).toBe(0);
+  });
+});
 
 describe("calculateSlabTax", () => {
   it("applies 0% for income entirely within the first slab", () => {

@@ -31,6 +31,7 @@ const SECTIONS: { title: string; items: NavEntry[] }[] = [
     title: "Payroll",
     items: [
       { href: "/payroll/runs", label: "Payroll runs", icon: "payroll", permission: "payroll.read", minScope: "COMPANY" },
+      { href: "/payroll/tds", label: "TDS Computation", icon: "reports", permission: "tds.manage", minScope: "COMPANY" },
       { href: "/payslips", label: "Payslips", icon: "payslip", permission: "payslip.read" },
       { href: "/reports", label: "Reports", icon: "reports", permission: "report.read", minScope: "COMPANY" },
     ],

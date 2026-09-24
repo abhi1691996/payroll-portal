@@ -89,6 +89,11 @@ export default async function PayslipDetailPage({
             <Line label="ESI" value={breakdown.employeeDeductions.esi} />
             <Line label="Professional Tax" value={breakdown.employeeDeductions.professionalTax} />
             <Line label="TDS" value={breakdown.employeeDeductions.tds} />
+            {breakdown.tdsSource && breakdown.tdsSource !== "slab_estimate" && (
+              <p className="-mt-1 mb-2 text-xs text-ink-muted">
+                Per approved TDS computation V{breakdown.tdsSource.version}, FY {breakdown.tdsSource.financialYear}-{String((breakdown.tdsSource.financialYear + 1) % 100).padStart(2, "0")}
+              </p>
+            )}
             <Line label="Total deductions" value={breakdown.totalDeductions} strong />
             {breakdown.otherDeductionLines && breakdown.otherDeductionLines.length > 0 && (
               <>

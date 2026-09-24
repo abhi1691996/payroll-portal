@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   "resignation.request": { module: "Employees", description: "Apply for their own resignation" },
   "loan.request": { module: "Employees", description: "Apply for a loan or salary advance" },
   "loan.manage": { module: "Employees", description: "Approve, reject and process loan/advance deductions" },
+  "tds.manage": { module: "Payroll", description: "Compute, revise and approve employee TDS" },
 
   // Attendance
   "attendance.read": { module: "Attendance", description: "View attendance" },

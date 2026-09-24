@@ -102,6 +102,12 @@ export interface PayrollBreakdown {
    * (those stay the statutory figure, for statutory reports); `netPay` above already has these subtracted.
    */
   otherDeductionLines?: { code: string; name: string; amount: number }[];
+  /**
+   * Where this month's TDS actually came from. Set once an employee has an APPROVED TDS Computation for
+   * the period's financial year — `employeeDeductions.tds` is then that computation's `monthlyTds`, not
+   * the plain slab estimate the fallback below produces.
+   */
+  tdsSource?: { computationId: string; version: number; financialYear: number } | "slab_estimate";
 }
 
 function round2(value: number): number {
@@ -139,6 +145,51 @@ export function calculateSlabTax(annualIncome: number, slabs: TaxSlab[]): number
   }
 
   return tax;
+}
+
+/** One deduction/exemption line on a TDS computation — standard deduction, 80C, 80D, HRA exemption, etc. */
+export interface TdsDeductionLine {
+  code: string;
+  name: string;
+  amount: number;
+}
+
+export interface TdsComputationInput {
+  grossIncome: number;
+  deductionLines: TdsDeductionLine[];
+  /** TDS already taken through payroll this financial year, as of now. */
+  tdsAlreadyDeducted: number;
+  /** FY months not yet paid — the balance is spread over these. */
+  remainingMonths: number;
+  slabs: TaxSlab[];
+}
+
+export interface TdsComputationResult {
+  totalDeductions: number;
+  taxableIncome: number;
+  taxLiability: number;
+  cess: number;
+  annualTdsLiability: number;
+  balanceTds: number;
+  monthlyTds: number;
+}
+
+/**
+ * The proper (Form-16-shaped) TDS computation this module exists for: gross income minus declared
+ * deductions/exemptions gives taxable income; slab tax plus 4% cess gives the year's TDS liability;
+ * subtracting what's already been withheld gives the balance, spread evenly (rounded UP, so the last
+ * month never falls short) over the months not yet paid. A negative balance (over-withheld) deducts
+ * nothing further through payroll — that surplus is reconciled at filing, not clawed back mid-year.
+ */
+export function computeTdsComputation(input: TdsComputationInput): TdsComputationResult {
+  const totalDeductions = round2(input.deductionLines.reduce((s, l) => s + l.amount, 0));
+  const taxableIncome = Math.max(0, round2(input.grossIncome - totalDeductions));
+  const taxLiability = round2(calculateSlabTax(taxableIncome, input.slabs));
+  const cess = round2(taxLiability * 0.04);
+  const annualTdsLiability = round2(taxLiability + cess);
+  const balanceTds = round2(annualTdsLiability - input.tdsAlreadyDeducted);
+  const monthlyTds = input.remainingMonths > 0 && balanceTds > 0 ? Math.ceil((balanceTds / input.remainingMonths) * 100) / 100 : 0;
+  return { totalDeductions, taxableIncome, taxLiability, cess, annualTdsLiability, balanceTds, monthlyTds };
 }
 
 export function calculateProfessionalTax(
@@ -239,5 +290,6 @@ export function calculatePayrollFromLines(
     employerContributions: { providentFund: employerPf, esi: employerEsi },
     totalDeductions,
     netPay,
+    tdsSource: "slab_estimate",
   };
 }
