@@ -18,7 +18,7 @@ import {
   Th,
   Tr,
 } from "@/components/ui";
-import { finalizePayrollRun } from "../actions";
+import { deletePayrollRun, finalizePayrollRun } from "../actions";
 
 export default async function PayrollRunDetailPage({
   params,
@@ -53,6 +53,7 @@ export default async function PayrollRunDetailPage({
   );
 
   const finalizeWithId = finalizePayrollRun.bind(null, run.id);
+  const deleteWithId = deletePayrollRun.bind(null, run.id);
 
   return (
     <div className="max-w-5xl">
@@ -67,9 +68,14 @@ export default async function PayrollRunDetailPage({
         description={`${run.payslips.length} payslip${run.payslips.length === 1 ? "" : "s"} in this run.`}
         actions={
           run.status === "PROCESSED" && canFinalize && (
-            <form action={finalizeWithId}>
-              <SubmitButton icon="check">Finalize run</SubmitButton>
-            </form>
+            <span className="flex items-center gap-3">
+              <form action={deleteWithId}>
+                <SubmitButton icon="close" variant="secondary">Delete this run</SubmitButton>
+              </form>
+              <form action={finalizeWithId}>
+                <SubmitButton icon="check">Mark as paid</SubmitButton>
+              </form>
+            </span>
           )
         }
       />

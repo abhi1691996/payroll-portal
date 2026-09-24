@@ -28,6 +28,8 @@ const TENANT_MODELS = new Set([
   "EmployeeLoan",
   "LoanInstallment",
   "TdsComputation",
+  "PayrollPeriodLock",
+  "AdHocDeduction",
   "AttendanceRecord",
   "LeaveType",
   "LeaveRequest",

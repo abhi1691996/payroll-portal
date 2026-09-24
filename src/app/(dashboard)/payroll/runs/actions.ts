@@ -17,6 +17,15 @@ import { scheduledMinutes } from "@/lib/attendance/engine";
 import { computeLop } from "@/lib/attendance/lop";
 import { calculatePayrollFromLines, type EarningLineInput } from "@/lib/payroll-calculations";
 import { getStatutoryConfigFor } from "@/lib/statutory-config";
+import {
+  allStagesLocked,
+  lockAttendance,
+  lockLoans,
+  lockOtherDeductions,
+  lockedLoanIds,
+  unlockPeriodStage,
+} from "@/server/payroll/locks";
+import { addAdHocDeduction, adHocDeductionsFor, removeAdHocDeduction } from "@/server/deductions/service";
 import type { Prisma } from "@prisma/client";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -49,7 +58,10 @@ export async function processPayrollRun(formData: FormData) {
         where: { companyId_month_year: { companyId: ctx.companyId, month, year } },
       });
       if (existingRun?.status === "FINALIZED") {
-        throw new Error("This payroll run is already finalized and cannot be reprocessed");
+        throw new Error("This payroll run is already marked as paid and cannot be reprocessed");
+      }
+      if (!(await allStagesLocked(db, month, year))) {
+        throw new Error("Lock attendance, loan deductions and other deductions for this period before running payroll");
       }
 
       await ensureLifecycleStatuses(db);
@@ -80,15 +92,14 @@ export async function processPayrollRun(formData: FormData) {
         update: { status: "PROCESSED", processedAt: new Date() },
       });
 
-      // Loan/advance deductions the admin chose to close for this period (checkboxes on the run form).
-      // Re-running the same month must keep charging what an earlier processing of THIS run already
-      // deducted (that ledger entry doesn't go away just because payslips are being recomputed), and must
-      // never charge it twice — a loan already deducted for (loanId, month, year) is no longer "eligible",
-      // so a stale re-submitted checkbox has no effect.
+      // Loan/advance and ad-hoc deductions the admin locked in for this period. Re-running the same month
+      // must keep charging what an earlier processing of THIS run already deducted for loans (that ledger
+      // entry doesn't go away just because payslips are being recomputed), and must never charge it twice —
+      // a loan already deducted for (loanId, month, year) is no longer "eligible", so re-locking has no effect.
       type DeductionLine = { code: string; name: string; amount: number };
-      const loanDeductions = new Map<string, DeductionLine[]>();
+      const otherDeductions = new Map<string, DeductionLine[]>();
       const addDeduction = (employeeId: string, line: DeductionLine) => {
-        loanDeductions.set(employeeId, [...(loanDeductions.get(employeeId) ?? []), line]);
+        otherDeductions.set(employeeId, [...(otherDeductions.get(employeeId) ?? []), line]);
       };
       for (const inst of await db.loanInstallment.findMany({
         where: { payrollRunId: run.id },
@@ -100,9 +111,15 @@ export async function processPayrollRun(formData: FormData) {
           amount: Number(inst.amount),
         });
       }
-      const selectedLoanIds = [...formData.keys()].filter((k) => k.startsWith("loan_") && formData.get(k) === "on").map((k) => k.slice(5));
+      const selectedLoanIds = (await lockedLoanIds(db, month, year)) ?? [];
       for (const [, entry] of await applyLoanDeductions(db, ctx.companyId, run.id, month, year, selectedLoanIds)) {
         for (const line of entry.deductionLines) addDeduction(entry.employeeId, line);
+      }
+
+      // Ad-hoc deductions (uniform cost, damage recovery, ...) an admin added for this period before
+      // locking OTHER_DEDUCTIONS — post-tax, same as loan repayments.
+      for (const d of await adHocDeductionsFor(db, month, year)) {
+        addDeduction(d.employeeId, { code: "ADHOC", name: d.name, amount: d.amount });
       }
 
       const payslipRows: Prisma.PayslipCreateManyInput[] = [];
@@ -175,11 +192,12 @@ export async function processPayrollRun(formData: FormData) {
           breakdown.tdsSource = { computationId: tdsComputation.id, version: tdsComputation.version, financialYear: tdsComputation.financialYear };
         }
 
-        // Loan/advance repayments: post-tax, so they reduce net pay without touching the statutory figures.
-        const employeeLoanDeductions = loanDeductions.get(employee.id);
-        if (employeeLoanDeductions?.length) {
-          breakdown.otherDeductionLines = employeeLoanDeductions;
-          breakdown.netPay = round2(breakdown.netPay - employeeLoanDeductions.reduce((s, l) => s + l.amount, 0));
+        // Loan/advance repayments and ad-hoc deductions: post-tax, so they reduce net pay without touching
+        // the statutory figures.
+        const employeeOtherDeductions = otherDeductions.get(employee.id);
+        if (employeeOtherDeductions?.length) {
+          breakdown.otherDeductionLines = employeeOtherDeductions;
+          breakdown.netPay = round2(breakdown.netPay - employeeOtherDeductions.reduce((s, l) => s + l.amount, 0));
         }
 
         payslipRows.push({
@@ -220,7 +238,7 @@ export async function finalizePayrollRun(runId: string) {
   await withTenant(ctx.companyId, async (db) => {
     const run = await db.payrollRun.findUnique({ where: { id: runId } });
     if (!run) throw new Error("Payroll run not found");
-    if (run.status === "FINALIZED") throw new Error("This run is already finalized");
+    if (run.status === "FINALIZED") throw new Error("This run is already marked as paid");
 
     await db.payrollRun.update({
       where: { id: runId },
@@ -237,4 +255,98 @@ export async function finalizePayrollRun(runId: string) {
   });
 
   revalidatePath(`/payroll/runs/${runId}`);
+}
+
+/**
+ * Deletes a payroll run that was created but never marked as paid — the "generate again" case: an admin
+ * decides the numbers need a from-scratch redo rather than a reprocess. Reverses any loan/advance balance
+ * this run's installments already took (their rows cascade-delete with the run, but the balance reduction
+ * they caused must not silently stick), then removes the run itself (payslips and loan installments cascade).
+ */
+export async function deletePayrollRun(runId: string) {
+  const ctx = await assertPermission("payroll.finalize", "COMPANY");
+
+  await withTenant(ctx.companyId, async (db) => {
+    const run = await db.payrollRun.findUnique({ where: { id: runId } });
+    if (!run) throw new Error("Payroll run not found");
+    if (run.status === "FINALIZED") throw new Error("A run marked as paid can't be deleted");
+
+    const installments = await db.loanInstallment.findMany({ where: { payrollRunId: runId } });
+    for (const inst of installments) {
+      const loan = await db.employeeLoan.findUnique({ where: { id: inst.loanId } });
+      if (!loan) continue;
+      await db.employeeLoan.update({
+        where: { id: loan.id },
+        data: {
+          outstandingBalance: round2(Number(loan.outstandingBalance) + Number(inst.amount)),
+          ...(loan.status === "CLOSED" ? { status: "APPROVED" as const } : {}),
+        },
+      });
+    }
+
+    await db.payrollRun.delete({ where: { id: runId } });
+    await audit(db, ctx, {
+      module: "payroll", action: "payroll.delete", entityType: "PayrollRun", entityId: runId,
+      oldValue: { month: run.month, year: run.year, status: run.status },
+    });
+  });
+
+  revalidatePath("/payroll/runs");
+  redirect("/payroll/runs");
+}
+
+/* ------------------------------ Pre-payroll checklist ------------------------------ */
+
+export async function lockAttendanceAction(month: number, year: number, formData: FormData) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  const acknowledgeIssues = formData.get("acknowledgeIssues") === "on";
+  await withTenant(ctx.companyId, (db) => lockAttendance(db, ctx, month, year, acknowledgeIssues));
+  revalidatePath("/payroll/runs");
+}
+
+export async function unlockAttendanceAction(month: number, year: number) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  await withTenant(ctx.companyId, (db) => unlockPeriodStage(db, ctx, month, year, "ATTENDANCE"));
+  revalidatePath("/payroll/runs");
+}
+
+export async function lockLoansAction(month: number, year: number, formData: FormData) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  const selectedLoanIds = [...formData.keys()].filter((k) => k.startsWith("loan_") && formData.get(k) === "on").map((k) => k.slice(5));
+  await withTenant(ctx.companyId, (db) => lockLoans(db, ctx, month, year, selectedLoanIds));
+  revalidatePath("/payroll/runs");
+}
+
+export async function unlockLoansAction(month: number, year: number) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  await withTenant(ctx.companyId, (db) => unlockPeriodStage(db, ctx, month, year, "LOANS"));
+  revalidatePath("/payroll/runs");
+}
+
+export async function lockOtherDeductionsAction(month: number, year: number) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  await withTenant(ctx.companyId, (db) => lockOtherDeductions(db, ctx, month, year));
+  revalidatePath("/payroll/runs");
+}
+
+export async function unlockOtherDeductionsAction(month: number, year: number) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  await withTenant(ctx.companyId, (db) => unlockPeriodStage(db, ctx, month, year, "OTHER_DEDUCTIONS"));
+  revalidatePath("/payroll/runs");
+}
+
+export async function addAdHocDeductionAction(month: number, year: number, formData: FormData) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  const employeeId = String(formData.get("employeeId") || "");
+  const name = String(formData.get("name") || "");
+  const amount = Number(formData.get("amount"));
+  const note = formData.get("note") ? String(formData.get("note")) : null;
+  await withTenant(ctx.companyId, (db) => addAdHocDeduction(db, ctx, { employeeId, month, year, name, amount, note }));
+  revalidatePath("/payroll/runs");
+}
+
+export async function removeAdHocDeductionAction(id: string) {
+  const ctx = await assertPermission("payroll.run", "COMPANY");
+  await withTenant(ctx.companyId, (db) => removeAdHocDeduction(db, ctx, id));
+  revalidatePath("/payroll/runs");
 }

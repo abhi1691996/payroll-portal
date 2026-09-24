@@ -43,9 +43,9 @@ export async function saveAttendance(employeeId: string, year: number, month: nu
     });
     if (!employee) throw new Error("Employee not found");
 
-    // Nobody edits a month that has already been finalized in payroll.
+    // Nobody edits a month whose payroll has already been marked as paid.
     const finalized = await db.payrollRun.findFirst({ where: { month, year, status: "FINALIZED" }, select: { id: true } });
-    if (finalized) throw new Error("Payroll for this month is finalized, so its attendance can't be changed");
+    if (finalized) throw new Error("Payroll for this month is marked as paid, so its attendance can't be changed");
 
     const result = await saveAttendanceDays(db, ctx.companyId, employee, entries);
     await audit(db, ctx, {

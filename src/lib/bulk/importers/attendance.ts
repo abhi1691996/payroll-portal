@@ -74,7 +74,7 @@ export const attendanceImporter: BulkImporter = {
     const addEntry = (line: number, code: string, entry: DayEntry): boolean => {
       const employee = byCode.get(code)!;
       if (isFinalized(entry.date)) {
-        bad(line, `Payroll for ${monthLabel(entry.date.getUTCFullYear(), entry.date.getUTCMonth() + 1)} is finalized and can't be changed`);
+        bad(line, `Payroll for ${monthLabel(entry.date.getUTCFullYear(), entry.date.getUTCMonth() + 1)} is marked as paid and can't be changed`);
         return false;
       }
       const key = `${code}|${formatIsoDate(entry.date)}`;
@@ -147,7 +147,7 @@ export const attendanceImporter: BulkImporter = {
         }
         if (!rowOk) continue;
         if (pending.length === 0) { bad(line, "Row has no attendance values"); continue; }
-        if (pending.some((p) => isFinalized(p.date))) { bad(line, `Payroll for ${monthLabel(year, month)} is finalized and can't be changed`); continue; }
+        if (pending.some((p) => isFinalized(p.date))) { bad(line, `Payroll for ${monthLabel(year, month)} is marked as paid and can't be changed`); continue; }
         if (seenKeys.has(`${code}|grid`)) { bad(line, `${code} appears more than once (line ${seenKeys.get(`${code}|grid`)})`); continue; }
         seenKeys.set(`${code}|grid`, line);
         for (const p of pending) addEntry(line, code, p);

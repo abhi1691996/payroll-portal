@@ -440,6 +440,7 @@ model Employee {
   separations       EmployeeSeparation[]
   loans             EmployeeLoan[]
   tdsComputations   TdsComputation[]
+  adHocDeductions   AdHocDeduction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1040,4 +1041,59 @@ model TdsComputation {
   @@unique([companyId, id])
   @@index([companyId, employeeId, financialYear])
   @@index([companyId, employeeId, financialYear, status])
+}
+
+/* --------------------------- Pre-payroll checklist -------------------------- */
+
+enum PayrollLockKind {
+  ATTENDANCE
+  LOANS
+  OTHER_DEDUCTIONS
+}
+
+/// One row per (company, period, kind): marks that stage of the pre-payroll checklist as reviewed and
+/// closed. The order (attendance -> loans -> other deductions -> run) is enforced in
+/// src/server/payroll/locks.ts, not by the database. Unlocking a stage also unlocks every stage after it
+/// (see the same file), so the checklist can never go stale; a period whose PayrollRun is FINALIZED can no
+/// longer be unlocked. A row is "active" while unlockedAt is null — re-locking after an unlock reuses the
+/// same row rather than creating a new one, so there's one row per (company, period, kind) ever.
+model PayrollPeriodLock {
+  id               String          @id @default(cuid())
+  companyId        String
+  month            Int
+  year             Int
+  kind             PayrollLockKind
+  /// LOANS only: the EmployeeLoan ids chosen to deduct this period, fixed at lock time so "Process
+  /// payroll" reads a settled selection instead of re-prompting for checkboxes.
+  payload          Json?
+  lockedByUserId   String
+  lockedAt         DateTime        @default(now())
+  unlockedByUserId String?
+  unlockedAt       DateTime?
+
+  @@unique([companyId, month, year, kind])
+  @@index([companyId, month, year])
+}
+
+/// A one-off deduction outside loans and the statutory ones (e.g. uniform cost, damage recovery) an admin
+/// adds for one employee before running a period's payroll. Applied automatically whenever that period is
+/// processed (see processPayrollRun) for as long as it isn't removed; removing one after the period's
+/// OTHER_DEDUCTIONS lock is set requires unlocking that stage first.
+model AdHocDeduction {
+  id              String   @id @default(cuid())
+  companyId       String
+  employeeId      String
+  employee        Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Cascade)
+  month           Int
+  year            Int
+  code            String
+  name            String
+  amount          Decimal  @db.Decimal(14, 2)
+  note            String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+  @@index([companyId, month, year])
 }

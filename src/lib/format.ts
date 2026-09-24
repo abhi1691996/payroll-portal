@@ -29,6 +29,14 @@ export function fmtDate(date: Date, style: "short" | "long" = "short"): string {
   });
 }
 
+/** A real timestamp (unlike fmtDate's calendar dates), shown in IST regardless of where the server runs. */
+export function fmtDateTime(date: Date): string {
+  return date.toLocaleString("en-IN", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
 export function initials(first: string, last: string): string {
   return `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
 }

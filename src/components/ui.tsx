@@ -119,6 +119,12 @@ export function Badge({ tone = "slate", children }: { tone?: Tone; children: Rea
   );
 }
 
+/** Overrides for statuses whose enum name isn't what a person should read (kept as FINALIZED in the
+ * database/audit trail — user-facing copy calls it "Paid", matching the payroll "mark as paid" workflow). */
+const STATUS_LABEL: Record<string, string> = {
+  FINALIZED: "Paid",
+};
+
 const STATUS_TONE: Record<string, Tone> = {
   ACTIVE: "green",
   ON_LEAVE: "amber",
@@ -139,7 +145,7 @@ const STATUS_TONE: Record<string, Tone> = {
 
 /** Colour-coded pill for any status enum used in the app. */
 export function StatusBadge({ status }: { status: string }) {
-  return <Badge tone={STATUS_TONE[status] ?? "slate"}>{titleCase(status)}</Badge>;
+  return <Badge tone={STATUS_TONE[status] ?? "slate"}>{STATUS_LABEL[status] ?? titleCase(status)}</Badge>;
 }
 
 export function StatCard({

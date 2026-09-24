@@ -33,7 +33,7 @@ export const PERMISSIONS = {
   // Payroll
   "payroll.read": { module: "Payroll", description: "View payroll runs" },
   "payroll.run": { module: "Payroll", description: "Process payroll" },
-  "payroll.finalize": { module: "Payroll", description: "Finalize payroll runs" },
+  "payroll.finalize": { module: "Payroll", description: "Mark payroll runs as paid, and delete unpaid runs" },
   "payslip.read": { module: "Payroll", description: "View payslips" },
 
   // Reports & compliance
